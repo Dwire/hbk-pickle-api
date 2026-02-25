@@ -1,0 +1,48 @@
+import dotenv from 'dotenv'
+import { z } from 'zod'
+
+dotenv.config()
+
+const envSchema = z.object({
+  NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+  PORT: z.coerce.number().int().positive().default(4000),
+  DATABASE_URL: z.string().min(1),
+  REDIS_URL: z.string().min(1),
+  TWILIO_ACCOUNT_SID: z.string().min(1),
+  TWILIO_AUTH_TOKEN: z.string().min(1),
+  TWILIO_VERIFY_SERVICE_SID: z.string().min(1),
+  FIREBASE_PROJECT_ID: z.string().min(1),
+  FIREBASE_CLIENT_EMAIL: z.string().min(1),
+  FIREBASE_PRIVATE_KEY: z.string().min(1),
+  AUTH_JWT_SECRET: z.string().min(1)
+})
+
+const envResult = envSchema.safeParse(process.env)
+
+const configErrorPrefix = 'Invalid environment configuration:'
+
+if (!envResult.success) {
+  const errorMessage = `${configErrorPrefix} ${envResult.error.message}`
+  process.stderr.write(`${errorMessage}\n`)
+  throw new Error(errorMessage)
+}
+
+export const config = {
+  nodeEnv: envResult.data.NODE_ENV,
+  port: envResult.data.PORT,
+  databaseUrl: envResult.data.DATABASE_URL,
+  redisUrl: envResult.data.REDIS_URL,
+  twilio: {
+    accountSid: envResult.data.TWILIO_ACCOUNT_SID,
+    authToken: envResult.data.TWILIO_AUTH_TOKEN,
+    verifyServiceSid: envResult.data.TWILIO_VERIFY_SERVICE_SID
+  },
+  firebase: {
+    projectId: envResult.data.FIREBASE_PROJECT_ID,
+    clientEmail: envResult.data.FIREBASE_CLIENT_EMAIL,
+    privateKey: envResult.data.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n')
+  },
+  auth: {
+    jwtSecret: envResult.data.AUTH_JWT_SECRET
+  }
+}

@@ -1,0 +1,21 @@
+import { logger } from '../../shared/logger.js'
+
+import { RegistrationScheduler } from './registrationScheduler.js'
+
+const scheduler = new RegistrationScheduler()
+
+const tick = async (): Promise<void> => {
+  const now = new Date()
+  await scheduler.queueRegistrationCloseWarnings(now)
+  await scheduler.queueSessionStartWarnings(now)
+}
+
+tick()
+  .then(() => {
+    logger.info('Scheduler tick complete')
+    process.exit(0)
+  })
+  .catch((error) => {
+    logger.error({ error }, 'Scheduler tick failed')
+    process.exit(1)
+  })

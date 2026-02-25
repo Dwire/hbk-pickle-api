@@ -1,0 +1,1 @@
+/Users/gjd/Development/kvenn-ai-instructions/agentic-instructions/.gemini/styleguide.md

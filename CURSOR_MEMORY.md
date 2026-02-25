@@ -1,0 +1,4 @@
+- Use pnpm (10.11.0), Node 24, ES modules, .js import paths after build.
+- GraphQL-first API; frontend polling instead of websockets.
+- Prisma client output lives in src/generated/prisma.
+- Logging via Pino wrapper Logger; avoid console.log.
