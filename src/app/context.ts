@@ -1,3 +1,4 @@
+import jwt from 'jsonwebtoken'
 import type { Request } from 'express'
 
 import { config } from '../shared/config.js'
@@ -17,7 +18,12 @@ export type AppContext = {
   request: RequestContext
 }
 
+type TokenPayload = {
+  userId: string
+}
+
 const authHeaderPrefix = 'Bearer '
+const invalidAuthTokenMessage = 'Invalid auth token'
 
 const getAuthToken = (request: Request): string | null => {
   const header = request.headers.authorization
@@ -36,6 +42,16 @@ const getAuthToken = (request: Request): string | null => {
 export const buildContext = (request: Request): AppContext => {
   const requestId = request.headers['x-request-id']?.toString() ?? crypto.randomUUID()
   const authToken = getAuthToken(request)
+  let userId: string | null = null
+
+  if (authToken) {
+    try {
+      const payload = jwt.verify(authToken, config.auth.jwtSecret) as TokenPayload
+      userId = payload.userId
+    } catch (error) {
+      logger.warn({ error }, invalidAuthTokenMessage)
+    }
+  }
 
   return {
     config,
@@ -44,7 +60,7 @@ export const buildContext = (request: Request): AppContext => {
     request: {
       requestId,
       authToken,
-      userId: null
+      userId
     }
   }
 }

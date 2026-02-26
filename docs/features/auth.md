@@ -19,3 +19,4 @@
 
 - Client requests verification -> Twilio Verify sends code.
 - Client submits code -> service validates -> user upsert -> JWT issued.
+- Request context decodes bearer tokens to supply userId for authenticated resolvers.
