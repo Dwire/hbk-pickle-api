@@ -4,7 +4,7 @@
 	"private": true,
 	"type": "module",
 	"scripts": {
-		"dev": "pnpm exec nodemon --watch src --ext ts --exec \"pnpm exec tsx --typecheck src/app/server.ts\"",
+		"dev": "pnpm exec nodemon --watch src --ext ts --exec \"pnpm exec tsx src/app/server.ts\"",
 		"build": "tsc",
 		"typecheck": "tsc --noEmit",
 		"lint": "eslint .",
