@@ -1,4 +1,5 @@
 set dotenv-load := true
+set shell := ["mise", "exec", "--", "/bin/zsh", "-cu"]
 
 # Install dependencies with pnpm.
 
