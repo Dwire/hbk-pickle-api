@@ -2,20 +2,22 @@
 
 ## Purpose
 
-- Manage weekly sessions and registration windows.
+- Manage recurring session templates and weekly occurrences.
 
 ## Core API
 
-- List sessions for a date range.
-- Admin create sessions and assign players to session slots.
+- List session occurrences for a date range (with registration window details).
+- Admin create session templates and weekly occurrences.
+- Admin assign players to recurring session slots.
 
 ## Key Files
 
-- src/features/sessions/sessionService.ts: Session listing and creation.
-- src/app/graphql/schema.ts: Session queries and admin mutations.
+- src/features/sessions/sessionService.ts: Session templates, occurrence listing, and occurrence creation.
+- src/app/graphql/schema.ts: Session queries and admin mutations (templates + occurrences).
 - src/shared/constants.ts: Registration window timing.
 
 ## Data Flow
 
-- Session listing calculates registration open/close based on start time.
-- Admin creates sessions tied to the default league.
+- Occurrences are the dated instances used for registration and sub availability.
+- Registration windows are derived from occurrence start time.
+- Session templates are tied to the default league and referenced by assignments.

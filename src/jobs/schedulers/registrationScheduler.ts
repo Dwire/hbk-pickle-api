@@ -10,14 +10,14 @@ type QueuePayload = {
 
 export class RegistrationScheduler {
   public async queueRegistrationCloseWarnings(now: Date): Promise<void> {
-    const upcoming = await prisma.session.findMany({
+    const upcoming = await prisma.sessionOccurrence.findMany({
       where: {
-        startTime: { gte: now }
+        startsAt: { gte: now }
       }
     })
 
-    for (const session of upcoming) {
-      const closeWarningAt = new Date(session.startTime)
+    for (const occurrence of upcoming) {
+      const closeWarningAt = new Date(occurrence.startsAt)
       closeWarningAt.setDate(closeWarningAt.getDate() - 1)
       closeWarningAt.setHours(21, -registrationCloseWarningMinutes, 0, 0)
 
@@ -26,7 +26,7 @@ export class RegistrationScheduler {
       }
 
       const registrationUsers = await prisma.sessionRegistration.findMany({
-        where: { sessionId: session.id, status: 'ATTENDING' },
+        where: { occurrenceId: occurrence.id, status: 'ATTENDING' },
         include: { user: { include: { devices: true } } }
       })
 
@@ -34,7 +34,7 @@ export class RegistrationScheduler {
         const notification = await prisma.notification.create({
           data: {
             userId: registration.userId,
-            sessionId: session.id,
+            occurrenceId: occurrence.id,
             title: 'Registration closes soon',
             body: `Registration closes in ${registrationCloseWarningMinutes} minutes.`,
             channel: 'PUSH',
@@ -59,14 +59,14 @@ export class RegistrationScheduler {
   }
 
   public async queueSessionStartWarnings(now: Date): Promise<void> {
-    const upcoming = await prisma.session.findMany({
+    const upcoming = await prisma.sessionOccurrence.findMany({
       where: {
-        startTime: { gte: now }
+        startsAt: { gte: now }
       }
     })
 
-    for (const session of upcoming) {
-      const warningAt = new Date(session.startTime)
+    for (const occurrence of upcoming) {
+      const warningAt = new Date(occurrence.startsAt)
       warningAt.setMinutes(warningAt.getMinutes() - sessionStartWarningMinutes)
 
       if (warningAt <= now) {
@@ -74,7 +74,7 @@ export class RegistrationScheduler {
       }
 
       const attendees = await prisma.sessionRegistration.findMany({
-        where: { sessionId: session.id, status: 'ATTENDING' },
+        where: { occurrenceId: occurrence.id, status: 'ATTENDING' },
         include: { user: { include: { devices: true } } }
       })
 
@@ -82,7 +82,7 @@ export class RegistrationScheduler {
         const notification = await prisma.notification.create({
           data: {
             userId: registration.userId,
-            sessionId: session.id,
+            occurrenceId: occurrence.id,
             title: 'Session starting soon',
             body: `Your session starts in ${sessionStartWarningMinutes} minutes.`,
             channel: 'PUSH',

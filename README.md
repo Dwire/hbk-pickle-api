@@ -1,6 +1,6 @@
 # HBK Pickle API
 
-Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for session registration, sub signups, admin league management, and notifications.
+Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for session occurrence registration, sub signups, admin league management, and notifications.
 
 ## Architecture Summary
 
@@ -14,7 +14,8 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 ## Features Summary
 
 - Phone signup/login and profile basics
-- Weekly sessions listing with registration and sub signup rules
+- Auth requests log Twilio Verify send/check outcomes for debugging
+- Weekly session occurrences listing with registration and sub signup rules
 - Registration windows and automatic sub cutoffs
 - Admin portal APIs for league/session management
 - Rules page content management
@@ -34,7 +35,7 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 
 - README.md: Project overview (this file)
 - justfile: Developer commands
-- prisma/schema.prisma: Database schema
+- prisma/schema.prisma: Database schema (recurring sessions + occurrences)
 - src/app/server.ts: App entry
 - src/app/graphql/schema.ts: GraphQL schema
 - src/shared/config.ts: Typed environment config

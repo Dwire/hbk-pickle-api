@@ -2,18 +2,18 @@
 
 ## Purpose
 
-- Allow assigned players to confirm attendance and cancel.
+- Allow assigned players to confirm weekly attendance and cancel per occurrence.
 
 ## Core API
 
-- Register for session (attendance).
-- Cancel registration.
+- Register for session occurrence (attendance).
+- Cancel registration for an occurrence.
 
 ## Key Files
 
-- src/features/registrations/registrationService.ts: Attendance registration logic.
-- src/app/graphql/schema.ts: Registration mutations.
+- src/features/registrations/registrationService.ts: Occurrence-based attendance registration logic.
+- src/app/graphql/schema.ts: Registration mutations (occurrence-scoped).
 
 ## Data Flow
 
-- Upsert registration record with ATTENDING or CANCELED.
+- Upsert registration record per occurrence with ATTENDING or CANCELED.

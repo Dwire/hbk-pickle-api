@@ -6,6 +6,7 @@ import { RegistrationService } from '../../features/registrations/registrationSe
 import { RuleService } from '../../features/rules/ruleService.js'
 import { SessionService } from '../../features/sessions/sessionService.js'
 import { SubSignupService } from '../../features/subs/subSignupService.js'
+import { Weekday } from '../../generated/prisma/client.js'
 import type { AppContext } from '../context.js'
 import { requireAuth } from '../auth.js'
 
@@ -30,6 +31,16 @@ const typeDefs = `#graphql
     REPLACED
   }
 
+  enum Weekday {
+    MONDAY
+    TUESDAY
+    WEDNESDAY
+    THURSDAY
+    FRIDAY
+    SATURDAY
+    SUNDAY
+  }
+
   type User {
     id: ID!
     phoneNumber: String!
@@ -51,7 +62,11 @@ const typeDefs = `#graphql
 
   type Session {
     id: ID!
+    sessionId: ID!
     title: String!
+    weekday: Weekday!
+    startTimeMinutes: Int!
+    endTimeMinutes: Int!
     startTime: DateTime!
     endTime: DateTime!
     capacity: Int!
@@ -97,12 +112,13 @@ const typeDefs = `#graphql
     verifyPhoneCode(phoneNumber: String!, code: String!): AuthPayload!
     registerDevice(token: String!, platform: String!): Boolean!
 
-    registerForSession(sessionId: ID!): SessionRegistration!
-    cancelRegistration(sessionId: ID!): SessionRegistration!
-    signupAsSub(sessionId: ID!): SubSignup!
-    cancelSubSignup(sessionId: ID!): SubSignup!
+    registerForSession(occurrenceId: ID!): SessionRegistration!
+    cancelRegistration(occurrenceId: ID!): SessionRegistration!
+    signupAsSub(occurrenceId: ID!): SubSignup!
+    cancelSubSignup(occurrenceId: ID!): SubSignup!
 
-    adminCreateSession(title: String!, startTime: DateTime!, endTime: DateTime!, capacity: Int): Session!
+    adminCreateSession(title: String!, weekday: Weekday!, startTimeMinutes: Int!, endTimeMinutes: Int!, capacity: Int): Session!
+    adminCreateSessionOccurrence(sessionId: ID!, startsAt: DateTime!, endsAt: DateTime!): Session!
     adminAssignPlayer(sessionId: ID!, userId: ID!): Boolean!
     adminUpsertRule(title: String!, body: String!, order: Int!): LeagueRule!
   }
@@ -121,9 +137,9 @@ const resolvers = {
       const ruleService = new RuleService()
       return ruleService.listRules()
     },
-    sessions: async (_: unknown, args: { start: Date; end: Date }, _context: AppContext) => {
+    sessions: async (_: unknown, args: { start: Date; end: Date }, context: AppContext) => {
       const sessionService = new SessionService()
-      return sessionService.listSessions(args.start, args.end)
+      return sessionService.listSessions(args.start, args.end, context.request.userId)
     }
   },
   Mutation: {
@@ -155,29 +171,39 @@ const resolvers = {
       })
       return true
     },
-    registerForSession: async (_: unknown, args: { sessionId: string }, context: AppContext) => {
+    registerForSession: async (_: unknown, args: { occurrenceId: string }, context: AppContext) => {
       const userId = requireAuth(context)
       const service = new RegistrationService()
-      return service.register(userId, args.sessionId)
+      return service.register(userId, args.occurrenceId)
     },
-    cancelRegistration: async (_: unknown, args: { sessionId: string }, context: AppContext) => {
+    cancelRegistration: async (_: unknown, args: { occurrenceId: string }, context: AppContext) => {
       const userId = requireAuth(context)
       const service = new RegistrationService()
-      return service.cancel(userId, args.sessionId)
+      return service.cancel(userId, args.occurrenceId)
     },
-    signupAsSub: async (_: unknown, args: { sessionId: string }, context: AppContext) => {
+    signupAsSub: async (_: unknown, args: { occurrenceId: string }, context: AppContext) => {
       const userId = requireAuth(context)
       const service = new SubSignupService()
-      return service.signup(userId, args.sessionId)
+      return service.signup(userId, args.occurrenceId)
     },
-    cancelSubSignup: async (_: unknown, args: { sessionId: string }, context: AppContext) => {
+    cancelSubSignup: async (_: unknown, args: { occurrenceId: string }, context: AppContext) => {
       const userId = requireAuth(context)
       const service = new SubSignupService()
-      return service.cancel(userId, args.sessionId)
+      return service.cancel(userId, args.occurrenceId)
     },
-    adminCreateSession: async (_: unknown, args: { title: string; startTime: Date; endTime: Date; capacity?: number }) => {
+    adminCreateSession: async (
+      _: unknown,
+      args: { title: string; weekday: Weekday; startTimeMinutes: number; endTimeMinutes: number; capacity?: number }
+    ) => {
       const service = new SessionService()
-      return service.createSession(args.title, args.startTime, args.endTime, args.capacity)
+      return service.createSession(args.title, args.weekday, args.startTimeMinutes, args.endTimeMinutes, args.capacity)
+    },
+    adminCreateSessionOccurrence: async (
+      _: unknown,
+      args: { sessionId: string; startsAt: Date; endsAt: Date }
+    ) => {
+      const service = new SessionService()
+      return service.createSessionOccurrence(args.sessionId, args.startsAt, args.endsAt)
     },
     adminAssignPlayer: async (_: unknown, args: { sessionId: string; userId: string }, context: AppContext) => {
       const league = await context.prisma.league.findFirst()
@@ -187,7 +213,7 @@ const resolvers = {
       }
 
       await context.prisma.slotAssignment.upsert({
-        where: { userId: args.userId },
+        where: { leagueId_userId: { leagueId: league.id, userId: args.userId } },
         create: { userId: args.userId, sessionId: args.sessionId, leagueId: league.id },
         update: { sessionId: args.sessionId }
       })

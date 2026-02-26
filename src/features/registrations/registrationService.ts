@@ -7,21 +7,21 @@ import { prisma } from '../../shared/prisma.js'
  * - Used by registration mutations.
  */
 export class RegistrationService {
-  public async register(userId: string, sessionId: string) {
+  public async register(userId: string, occurrenceId: string) {
     return prisma.sessionRegistration.upsert({
-      where: { userId_sessionId: { userId, sessionId } },
+      where: { userId_occurrenceId: { userId, occurrenceId } },
       create: {
         userId,
-        sessionId,
+        occurrenceId,
         status: 'ATTENDING'
       },
       update: { status: 'ATTENDING' }
     })
   }
 
-  public async cancel(userId: string, sessionId: string) {
+  public async cancel(userId: string, occurrenceId: string) {
     return prisma.sessionRegistration.update({
-      where: { userId_sessionId: { userId, sessionId } },
+      where: { userId_occurrenceId: { userId, occurrenceId } },
       data: { status: 'CANCELED' }
     })
   }

@@ -7,21 +7,21 @@ import { prisma } from '../../shared/prisma.js'
  * - Used by sub signup mutations.
  */
 export class SubSignupService {
-  public async signup(userId: string, sessionId: string) {
+  public async signup(userId: string, occurrenceId: string) {
     return prisma.subSignup.upsert({
-      where: { userId_sessionId: { userId, sessionId } },
+      where: { userId_occurrenceId: { userId, occurrenceId } },
       create: {
         userId,
-        sessionId,
+        occurrenceId,
         status: 'ACTIVE'
       },
       update: { status: 'ACTIVE' }
     })
   }
 
-  public async cancel(userId: string, sessionId: string) {
+  public async cancel(userId: string, occurrenceId: string) {
     return prisma.subSignup.update({
-      where: { userId_sessionId: { userId, sessionId } },
+      where: { userId_occurrenceId: { userId, occurrenceId } },
       data: { status: 'CANCELED' }
     })
   }

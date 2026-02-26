@@ -37,6 +37,16 @@ enum NotificationChannel {
   PUSH
 }
 
+enum Weekday {
+  MONDAY
+  TUESDAY
+  WEDNESDAY
+  THURSDAY
+  FRIDAY
+  SATURDAY
+  SUNDAY
+}
+
 model User {
   id             String   @id @default(uuid())
   phoneNumber    String   @unique
@@ -44,7 +54,7 @@ model User {
   role           UserRole @default(PLAYER)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
-  assignedSlot   SlotAssignment?
+  slotAssignments SlotAssignment[]
   registrations  SessionRegistration[]
   subSignups     SubSignup[]
   devices        UserDevice[]
@@ -63,6 +73,10 @@ model UserDevice {
 model League {
   id          String   @id @default(uuid())
   name        String
+  isActive    Boolean  @default(true)
+  startDate   DateTime?
+  endDate     DateTime?
+  timeZone    String?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   rules       LeagueRule[]
@@ -87,59 +101,75 @@ model Session {
   id          String   @id @default(uuid())
   leagueId    String
   title       String
-  startTime   DateTime
-  endTime     DateTime
+  weekday     Weekday
+  startTimeMinutes Int
+  endTimeMinutes Int
   capacity    Int
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   league      League   @relation(fields: [leagueId], references: [id])
+  occurrences SessionOccurrence[]
+  assignments SlotAssignment[]
+}
+
+model SessionOccurrence {
+  id         String   @id @default(uuid())
+  sessionId  String
+  startsAt   DateTime
+  endsAt     DateTime
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+  session    Session  @relation(fields: [sessionId], references: [id])
   registrations SessionRegistration[]
   subSignups  SubSignup[]
-  assignments SlotAssignment[]
   notifications Notification[]
+
+  @@unique([sessionId, startsAt])
 }
 
 model SlotAssignment {
   id        String   @id @default(uuid())
   leagueId  String
-  userId    String   @unique
+  userId    String
   sessionId String
   createdAt DateTime @default(now())
   league    League   @relation(fields: [leagueId], references: [id])
   user      User     @relation(fields: [userId], references: [id])
   session   Session  @relation(fields: [sessionId], references: [id])
+
+  @@unique([leagueId, userId])
 }
 
 model SessionRegistration {
   id           String             @id @default(uuid())
   userId       String
-  sessionId    String
+  occurrenceId String
   status       RegistrationStatus
   updatedAt    DateTime           @updatedAt
   createdAt    DateTime           @default(now())
   user         User               @relation(fields: [userId], references: [id])
-  session      Session            @relation(fields: [sessionId], references: [id])
+  occurrence   SessionOccurrence  @relation(fields: [occurrenceId], references: [id])
 
-  @@unique([userId, sessionId])
+  @@unique([userId, occurrenceId])
 }
 
 model SubSignup {
   id         String          @id @default(uuid())
   userId     String
-  sessionId  String
+  occurrenceId String
   status     SubSignupStatus
   createdAt  DateTime        @default(now())
   updatedAt  DateTime        @updatedAt
   user       User            @relation(fields: [userId], references: [id])
-  session    Session         @relation(fields: [sessionId], references: [id])
+  occurrence SessionOccurrence @relation(fields: [occurrenceId], references: [id])
 
-  @@unique([userId, sessionId])
+  @@unique([userId, occurrenceId])
 }
 
 model Notification {
   id         String              @id @default(uuid())
   userId     String
-  sessionId  String?
+  occurrenceId  String?
   title      String
   body       String
   channel    NotificationChannel
@@ -147,5 +177,5 @@ model Notification {
   createdAt  DateTime            @default(now())
   updatedAt  DateTime            @updatedAt
   user       User                @relation(fields: [userId], references: [id])
-  session    Session?            @relation(fields: [sessionId], references: [id])
+  occurrence SessionOccurrence?  @relation(fields: [occurrenceId], references: [id])
 }
