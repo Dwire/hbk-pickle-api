@@ -6,4 +6,5 @@
 - sub-signups.md: Sub signup logic
 - rules.md: League rules content
 - notifications.md: Push notifications delivery
+- seed-data.md: Local seed data generation
 - scheduler: registrationScheduler.ts and registrationTick.ts handle queued reminders

@@ -21,6 +21,7 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - Admin portal APIs for league/session management
 - Rules page content management
 - Notification scheduling and delivery
+- Local seed data generation for leagues, users, sessions, and assignments
 
 ## Folder Structure
 
@@ -41,6 +42,7 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - src/app/graphql/schema.ts: GraphQL schema
 - src/shared/config.ts: Typed environment config
 - src/shared/logger.ts: Pino logger wrapper
+- src/scripts/seed.ts: Seed script for local demo data
 
 ## Documentation
 

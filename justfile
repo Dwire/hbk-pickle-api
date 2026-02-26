@@ -41,7 +41,19 @@ scheduler-tick:
 migrate-dev:
 	pnpm prisma migrate dev
 
+# Push Prisma schema to the database (no migrations).
+# Parameters: none.
+
+db-push:
+	pnpm prisma db push
+
 # Generate Prisma client.
 
 prisma-generate:
 	pnpm prisma generate
+
+# Seed database with demo league, users, sessions, and assignments.
+# Parameters: none.
+
+seed: typecheck
+	pnpm exec tsx src/scripts/seed.ts
