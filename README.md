@@ -46,6 +46,7 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 
 ## Local Development (Postman)
 
+- Install toolchain versions via mise and ensure it is activated so pnpm is on PATH.
 - Ensure Postgres and Redis are running.
 - Create the local database: `createdb hbk_pickle`.
 - Sync schema without migrations (no shadow DB permissions): `pnpm prisma db push`.

@@ -2,3 +2,4 @@
 - GraphQL-first API; frontend polling instead of websockets.
 - Prisma client output lives in src/generated/prisma.
 - Logging via Pino wrapper Logger; avoid console.log.
+- Run commands through mise (e.g., `mise exec -- just dev`) so pnpm resolves from mise.toml.
