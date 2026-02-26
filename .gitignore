@@ -6,3 +6,11 @@ dist
 coverage
 pnpm-debug.log
 prisma/migrations
+*.log
+.cache
+.idea
+.vscode
+.pnpm-store
+tmp
+temp
+src/generated/prisma
