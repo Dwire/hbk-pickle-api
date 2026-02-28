@@ -33,6 +33,13 @@ enum NotificationStatus {
   FAILED
 }
 
+enum NotificationKind {
+  REGISTRATION_CLOSE_WARNING
+  SESSION_START_WARNING
+  SUB_SELECTED
+  SUB_STATUS_CHANGED
+}
+
 enum NotificationChannel {
   PUSH
 }
@@ -158,6 +165,8 @@ model SubSignup {
   userId     String
   occurrenceId String
   status     SubSignupStatus
+  selectionRank Int?
+  selectedAt DateTime?
   createdAt  DateTime        @default(now())
   updatedAt  DateTime        @updatedAt
   user       User            @relation(fields: [userId], references: [id])
@@ -174,6 +183,8 @@ model Notification {
   body       String
   channel    NotificationChannel
   status     NotificationStatus
+  kind       NotificationKind
+  payload    Json?
   createdAt  DateTime            @default(now())
   updatedAt  DateTime            @updatedAt
   user       User                @relation(fields: [userId], references: [id])

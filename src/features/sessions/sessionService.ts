@@ -60,7 +60,7 @@ const easternWeekdayFormat = new Intl.DateTimeFormat(localeEnUs, {
   weekday: weekdayFormatStyle
 })
 
-type SessionWindow = {
+export type SessionWindow = {
   registrationOpenAt: Date
   registrationCloseAt: Date
 }
@@ -81,6 +81,29 @@ type SessionOccurrenceSummary = {
   subSignupStatus: SubSignupStatus | null
   attendingCount: number
   subCount: number
+}
+
+type SessionRosterEntry = {
+  user: {
+    id: string
+    phoneNumber: string
+    displayName: string | null
+    role: string
+  }
+  status: string
+  selectionRank?: number | null
+}
+
+type SessionOccurrenceDetail = {
+  occurrenceId: string
+  attendees: SessionRosterEntry[]
+  subs: SessionRosterEntry[]
+  openSpots: number
+  registrationOpenAt: Date
+  registrationCloseAt: Date
+  canRegister: boolean
+  canSub: boolean
+  isRegistrationOpen: boolean
 }
 
 type OccurrenceWithSession = SessionOccurrenceGetPayload<{
@@ -197,6 +220,35 @@ const easternZonedTimeToUtc = (local: LocalDateTime): Date => {
   return new Date(utcGuess.getTime() - offsetMinutes * millisecondsPerMinute)
 }
 
+export const getEasternDateParts = (date: Date): DateParts => {
+  const parts = getEasternDateTimeParts(date)
+  return {
+    year: parts.year,
+    month: parts.month,
+    day: parts.day
+  }
+}
+
+export const getEasternDayRangeUtc = (date: Date): { start: Date; end: Date } => {
+  const dateParts = getEasternDateParts(date)
+  const start = easternZonedTimeToUtc({
+    ...dateParts,
+    hour: weekStartHour,
+    minute: weekStartMinute,
+    second: weekStartSecond,
+    millisecond: weekStartMillisecond
+  })
+  const end = easternZonedTimeToUtc({
+    ...dateParts,
+    hour: weekEndHour,
+    minute: weekEndMinute,
+    second: weekEndSecond,
+    millisecond: weekEndMillisecond
+  })
+
+  return { start, end }
+}
+
 const getEasternWeekRange = (now: Date): { start: Date; end: Date } => {
   const nowParts = getEasternDateTimeParts(now)
   const nowDateParts: DateParts = { year: nowParts.year, month: nowParts.month, day: nowParts.day }
@@ -230,6 +282,22 @@ const getEasternWeekRange = (now: Date): { start: Date; end: Date } => {
  * - Used by session queries and admin mutations.
  */
 export class SessionService {
+  public calculateRegistrationWindow(startsAt: Date): SessionWindow {
+    const openAt = new Date(startsAt)
+    openAt.setDate(openAt.getDate() - 1)
+    openAt.setHours(registrationOpenHour, 0, 0, 0)
+
+    const closeAt = new Date(startsAt)
+    closeAt.setDate(closeAt.getDate() - 1)
+    closeAt.setHours(registrationCloseHour, 0, 0, 0)
+
+    return { registrationOpenAt: openAt, registrationCloseAt: closeAt }
+  }
+
+  public isWithinRegistrationWindow(now: Date, startsAt: Date): boolean {
+    const { registrationOpenAt, registrationCloseAt } = this.calculateRegistrationWindow(startsAt)
+    return now >= registrationOpenAt && now <= registrationCloseAt
+  }
   /**
    * Lists session occurrences for the current Eastern week.
    * - Computes Monday 00:00 through Sunday 23:59:59.999 (Eastern).
@@ -330,16 +398,88 @@ export class SessionService {
     return this.mapOccurrenceToSummary(occurrence, null, null)
   }
 
-  private calculateRegistrationWindow(startsAt: Date): SessionWindow {
-    const openAt = new Date(startsAt)
-    openAt.setDate(openAt.getDate() - 1)
-    openAt.setHours(registrationOpenHour, 0, 0, 0)
+  public async getOccurrenceDetail(
+    occurrenceId: string,
+    userId?: string | null
+  ): Promise<SessionOccurrenceDetail> {
+    const occurrence = await prisma.sessionOccurrence.findUnique({
+      where: { id: occurrenceId },
+      include: {
+        session: true,
+        registrations: {
+          where: { status: 'ATTENDING' },
+          include: { user: true },
+          orderBy: { createdAt: 'asc' }
+        },
+        subSignups: {
+          where: { status: { in: ['ACTIVE', 'SELECTED', 'REPLACED'] } },
+          include: { user: true },
+          orderBy: { createdAt: 'asc' }
+        }
+      }
+    })
 
-    const closeAt = new Date(startsAt)
-    closeAt.setDate(closeAt.getDate() - 1)
-    closeAt.setHours(registrationCloseHour, 0, 0, 0)
+    if (!occurrence) {
+      throw new Error('Session occurrence missing')
+    }
 
-    return { registrationOpenAt: openAt, registrationCloseAt: closeAt }
+    const registrationWindow = this.calculateRegistrationWindow(occurrence.startsAt)
+    const now = new Date()
+    const isRegistrationOpen = now >= registrationWindow.registrationOpenAt && now <= registrationWindow.registrationCloseAt
+
+    const attendeeEntries: SessionRosterEntry[] = occurrence.registrations.map((registration) => ({
+      user: {
+        id: registration.user.id,
+        phoneNumber: registration.user.phoneNumber,
+        displayName: registration.user.displayName,
+        role: registration.user.role
+      },
+      status: registration.status
+    }))
+
+    const subEntries: SessionRosterEntry[] = occurrence.subSignups.map((signup) => ({
+      user: {
+        id: signup.user.id,
+        phoneNumber: signup.user.phoneNumber,
+        displayName: signup.user.displayName,
+        role: signup.user.role
+      },
+      status: signup.status,
+      selectionRank: signup.selectionRank
+    }))
+
+    const capacity = occurrence.session.capacity ?? sessionCapacityDefault
+    const openSpots = Math.max(capacity - occurrence.registrations.length, 0)
+
+    let canRegister = false
+    let canSub = false
+
+    if (userId) {
+      const assignment = await prisma.slotAssignment.findFirst({
+        where: { userId, sessionId: occurrence.sessionId }
+      })
+      const hasRegistration = await prisma.sessionRegistration.findFirst({
+        where: { userId, occurrenceId, status: 'ATTENDING' }
+      })
+      const hasSubSignup = await prisma.subSignup.findFirst({
+        where: { userId, occurrenceId, status: { in: ['ACTIVE', 'SELECTED'] } }
+      })
+
+      canRegister = Boolean(assignment && !hasRegistration)
+      canSub = Boolean(!assignment && !hasSubSignup)
+    }
+
+    return {
+      occurrenceId,
+      attendees: attendeeEntries,
+      subs: subEntries,
+      openSpots,
+      registrationOpenAt: registrationWindow.registrationOpenAt,
+      registrationCloseAt: registrationWindow.registrationCloseAt,
+      canRegister,
+      canSub,
+      isRegistrationOpen
+    }
   }
 
   private async getDefaultLeagueId(): Promise<string> {
