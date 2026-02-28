@@ -8,6 +8,7 @@ const tick = async (): Promise<void> => {
   const now = new Date()
   await scheduler.queueRegistrationCloseWarnings(now)
   await scheduler.queueSessionStartWarnings(now)
+  await scheduler.queueSubSelection(now)
 }
 
 tick()

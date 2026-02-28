@@ -86,6 +86,8 @@ const typeDefs = `#graphql
   type SubSignup {
     id: ID!
     status: SubSignupStatus!
+    selectionRank: Int
+    selectedAt: DateTime
   }
 
   type Notification {
@@ -93,6 +95,26 @@ const typeDefs = `#graphql
     title: String!
     body: String!
     status: String!
+    kind: String!
+    payload: String
+  }
+
+  type SessionRosterEntry {
+    user: User!
+    status: String!
+    selectionRank: Int
+  }
+
+  type SessionOccurrenceDetail {
+    occurrenceId: ID!
+    attendees: [SessionRosterEntry!]!
+    subs: [SessionRosterEntry!]!
+    openSpots: Int!
+    registrationOpenAt: DateTime!
+    registrationCloseAt: DateTime!
+    canRegister: Boolean!
+    canSub: Boolean!
+    isRegistrationOpen: Boolean!
   }
 
   type AuthPayload {
@@ -105,6 +127,7 @@ const typeDefs = `#graphql
     league: League
     rules: [LeagueRule!]!
     sessionsWeek: [Session!]!
+    sessionOccurrenceDetail(occurrenceId: ID!): SessionOccurrenceDetail!
   }
 
   type Mutation {
@@ -140,6 +163,10 @@ const resolvers = {
     sessionsWeek: async (_: unknown, __: unknown, context: AppContext) => {
       const sessionService = new SessionService()
       return sessionService.listSessionsWeek(context.request.userId)
+    },
+    sessionOccurrenceDetail: async (_: unknown, args: { occurrenceId: string }, context: AppContext) => {
+      const sessionService = new SessionService()
+      return sessionService.getOccurrenceDetail(args.occurrenceId, context.request.userId)
     }
   },
   Mutation: {
