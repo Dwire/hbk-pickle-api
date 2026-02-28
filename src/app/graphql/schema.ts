@@ -104,7 +104,7 @@ const typeDefs = `#graphql
     me: User
     league: League
     rules: [LeagueRule!]!
-    sessions(start: DateTime!, end: DateTime!): [Session!]!
+    sessionsWeek: [Session!]!
   }
 
   type Mutation {
@@ -137,9 +137,9 @@ const resolvers = {
       const ruleService = new RuleService()
       return ruleService.listRules()
     },
-    sessions: async (_: unknown, args: { start: Date; end: Date }, context: AppContext) => {
+    sessionsWeek: async (_: unknown, __: unknown, context: AppContext) => {
       const sessionService = new SessionService()
-      return sessionService.listSessions(args.start, args.end, context.request.userId)
+      return sessionService.listSessionsWeek(context.request.userId)
     }
   },
   Mutation: {
