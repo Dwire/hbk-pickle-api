@@ -6,7 +6,7 @@
 
 ## Core API
 
-- List session occurrences for a date range (with registration window details).
+- List session occurrences for the current Eastern week (with registration window details).
 - Admin create session templates and weekly occurrences.
 - Admin assign players to recurring session slots.
 

@@ -4,6 +4,62 @@ import { prisma } from '../../shared/prisma.js'
 import { logger } from '../../shared/logger.js'
 import { registrationCloseHour, registrationOpenHour, sessionCapacityDefault } from '../../shared/constants.js'
 
+const easternTimeZone = 'America/New_York'
+const localeEnUs = 'en-US'
+const weekdayFormatStyle = 'short'
+const hourCycle24 = 'h23'
+const literalPartType = 'literal'
+const yearPartType = 'year'
+const monthPartType = 'month'
+const dayPartType = 'day'
+const hourPartType = 'hour'
+const minutePartType = 'minute'
+const secondPartType = 'second'
+const weekdayLabelSun = 'Sun'
+const weekdayLabelMon = 'Mon'
+const weekdayLabelTue = 'Tue'
+const weekdayLabelWed = 'Wed'
+const weekdayLabelThu = 'Thu'
+const weekdayLabelFri = 'Fri'
+const weekdayLabelSat = 'Sat'
+const sundayIndex = 0
+const mondayIndex = 1
+const daysPerWeek = 7
+const millisecondsPerMinute = 60_000
+const weekStartHour = 0
+const weekStartMinute = 0
+const weekStartSecond = 0
+const weekStartMillisecond = 0
+const weekEndHour = 23
+const weekEndMinute = 59
+const weekEndSecond = 59
+const weekEndMillisecond = 999
+const weekdayIndexByLabel: Record<string, number> = {
+  [weekdayLabelSun]: sundayIndex,
+  [weekdayLabelMon]: mondayIndex,
+  [weekdayLabelTue]: 2,
+  [weekdayLabelWed]: 3,
+  [weekdayLabelThu]: 4,
+  [weekdayLabelFri]: 5,
+  [weekdayLabelSat]: 6
+}
+
+const easternDateTimeFormat = new Intl.DateTimeFormat(localeEnUs, {
+  timeZone: easternTimeZone,
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+  hourCycle: hourCycle24
+})
+
+const easternWeekdayFormat = new Intl.DateTimeFormat(localeEnUs, {
+  timeZone: easternTimeZone,
+  weekday: weekdayFormatStyle
+})
+
 type SessionWindow = {
   registrationOpenAt: Date
   registrationCloseAt: Date
@@ -43,6 +99,130 @@ type OccurrenceWithUserData = SessionOccurrenceGetPayload<{
   }
 }>
 
+type DateParts = {
+  year: number
+  month: number
+  day: number
+}
+
+type DateTimeParts = DateParts & {
+  hour: number
+  minute: number
+  second: number
+}
+
+type LocalDateTime = DateTimeParts & {
+  millisecond: number
+}
+
+const getEasternDateTimeParts = (date: Date): DateTimeParts => {
+  const parts = easternDateTimeFormat.formatToParts(date)
+  const lookup = new Map<string, string>()
+
+  for (const part of parts) {
+      if (part.type === literalPartType) {
+        continue
+      }
+
+      lookup.set(part.type, part.value)
+  }
+
+  const yearValue = Number(lookup.get(yearPartType))
+  const monthValue = Number(lookup.get(monthPartType))
+  const dayValue = Number(lookup.get(dayPartType))
+  const hourValue = Number(lookup.get(hourPartType))
+  const minuteValue = Number(lookup.get(minutePartType))
+  const secondValue = Number(lookup.get(secondPartType))
+
+  return {
+    year: yearValue,
+    month: monthValue,
+    day: dayValue,
+    hour: hourValue,
+    minute: minuteValue,
+    second: secondValue
+  }
+}
+
+const getEasternWeekdayIndex = (date: Date): number => {
+  const label = easternWeekdayFormat.format(date)
+  return weekdayIndexByLabel[label] ?? sundayIndex
+}
+
+const shiftDateByDays = (dateParts: DateParts, offsetDays: number): DateParts => {
+  const shifted = new Date(Date.UTC(dateParts.year, dateParts.month - 1, dateParts.day + offsetDays))
+  return {
+    year: shifted.getUTCFullYear(),
+    month: shifted.getUTCMonth() + 1,
+    day: shifted.getUTCDate()
+  }
+}
+
+const getEasternOffsetMinutes = (date: Date): number => {
+  const parts = easternDateTimeFormat.formatToParts(date)
+  const lookup = new Map<string, string>()
+
+  for (const part of parts) {
+      if (part.type === literalPartType) {
+        continue
+      }
+
+      lookup.set(part.type, part.value)
+  }
+
+  const yearValue = Number(lookup.get(yearPartType))
+  const monthValue = Number(lookup.get(monthPartType))
+  const dayValue = Number(lookup.get(dayPartType))
+  const hourValue = Number(lookup.get(hourPartType))
+  const minuteValue = Number(lookup.get(minutePartType))
+  const secondValue = Number(lookup.get(secondPartType))
+
+  const utcTimestamp = Date.UTC(
+    yearValue,
+    monthValue - 1,
+    dayValue,
+    hourValue,
+    minuteValue,
+    secondValue
+  )
+
+  return (utcTimestamp - date.getTime()) / millisecondsPerMinute
+}
+
+const easternZonedTimeToUtc = (local: LocalDateTime): Date => {
+  const utcGuess = new Date(
+    Date.UTC(local.year, local.month - 1, local.day, local.hour, local.minute, local.second, local.millisecond)
+  )
+  const offsetMinutes = getEasternOffsetMinutes(utcGuess)
+  return new Date(utcGuess.getTime() - offsetMinutes * millisecondsPerMinute)
+}
+
+const getEasternWeekRange = (now: Date): { start: Date; end: Date } => {
+  const nowParts = getEasternDateTimeParts(now)
+  const nowDateParts: DateParts = { year: nowParts.year, month: nowParts.month, day: nowParts.day }
+  const weekdayIndex = getEasternWeekdayIndex(now)
+  const daysSinceWeekStart = (weekdayIndex - mondayIndex + daysPerWeek) % daysPerWeek
+  const startDateParts = shiftDateByDays(nowDateParts, -daysSinceWeekStart)
+  const endDateParts = shiftDateByDays(startDateParts, daysPerWeek - 1)
+
+  const start = easternZonedTimeToUtc({
+    ...startDateParts,
+    hour: weekStartHour,
+    minute: weekStartMinute,
+    second: weekStartSecond,
+    millisecond: weekStartMillisecond
+  })
+  const end = easternZonedTimeToUtc({
+    ...endDateParts,
+    hour: weekEndHour,
+    minute: weekEndMinute,
+    second: weekEndSecond,
+    millisecond: weekEndMillisecond
+  })
+
+  return { start, end }
+}
+
 /**
  * SessionService
  * - Lists sessions with derived registration windows.
@@ -50,6 +230,18 @@ type OccurrenceWithUserData = SessionOccurrenceGetPayload<{
  * - Used by session queries and admin mutations.
  */
 export class SessionService {
+  /**
+   * Lists session occurrences for the current Eastern week.
+   * - Computes Monday 00:00 through Sunday 23:59:59.999 (Eastern).
+   * - Delegates to range-based listing for the resulting UTC window.
+   * - Used by the sessionsWeek query.
+   */
+  public async listSessionsWeek(userId?: string | null): Promise<SessionOccurrenceSummary[]> {
+    const { start, end } = getEasternWeekRange(new Date())
+    logger.info({ start, end, timeZone: easternTimeZone }, 'Listing sessions for eastern week')
+    return this.listSessions(start, end, userId)
+  }
+
   public async listSessions(start: Date, end: Date, userId?: string | null): Promise<SessionOccurrenceSummary[]> {
     const includeUserStatus = typeof userId === 'string' && userId.length > 0
     const occurrences = await prisma.sessionOccurrence.findMany({

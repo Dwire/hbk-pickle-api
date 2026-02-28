@@ -16,7 +16,7 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - Phone signup/login and profile basics
 - Auth requests log Twilio Verify send/check outcomes for debugging
 - Auth context derives user identity from bearer JWTs for resolvers
-- Weekly session occurrences listing with registration and sub signup rules
+- Weekly (Eastern) session occurrences listing with registration and sub signup rules
 - Registration windows and automatic sub cutoffs
 - Admin portal APIs for league/session management
 - Rules page content management
@@ -52,9 +52,9 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 
 - Install toolchain versions via mise and ensure it is activated so pnpm is on PATH.
 - Ensure Postgres and Redis are running.
-- Create the local database: `createdb hbk_pickle`.
-- Sync schema without migrations (no shadow DB permissions): `pnpm prisma db push`.
-- Start the API: `pnpm dev`.
+- Create the local database.
+- Sync schema without migrations (no shadow DB permissions).
+- Start the API.
 
 ### Postman GraphQL Endpoint
 
@@ -62,11 +62,4 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - Method: POST
 - Body: GraphQL
 
-Example queries:
-
-- `query { rules { id title body order } }`
-- `query { sessions(start: "2026-01-01T00:00:00.000Z", end: "2026-12-31T23:59:59.999Z") { id title startTime endTime capacity } }`
-
-Mutations (auth requires Twilio in production; stubbed locally):
-
-- `mutation { requestPhoneVerification(phoneNumber: "+15555550100") }`
+Mutations (auth requires Twilio in production; stubbed locally).
