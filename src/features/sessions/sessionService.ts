@@ -26,6 +26,9 @@ const sundayIndex = 0
 const mondayIndex = 1
 const daysPerWeek = 7
 const millisecondsPerMinute = 60_000
+const logSessionSummaryWithoutAssignment = 'Mapping session occurrence summary without assignment context'
+const logLoadedSessionAssignmentStatus = 'Loaded session assignment status for sessions week'
+const logResolvedSessionAssignmentStatus = 'Resolved session assignment status'
 const weekStartHour = 0
 const weekStartMinute = 0
 const weekStartSecond = 0
@@ -344,7 +347,7 @@ export class SessionService {
       }
       logger.info(
         { userId, sessionCount: sessionIds.length, assignedSessionCount: assignedSessionIds.size },
-        'Loaded session assignment status for sessions week'
+        logLoadedSessionAssignmentStatus
       )
     }
 
@@ -419,7 +422,9 @@ export class SessionService {
       throw new Error('Session occurrence missing')
     }
 
-    return this.mapOccurrenceToSummary(occurrence, null, null)
+    const isUserAssignedToSession = false
+    logger.info({ occurrenceId, isUserAssignedToSession }, logSessionSummaryWithoutAssignment)
+    return this.mapOccurrenceToSummary(occurrence, null, null, isUserAssignedToSession)
   }
 
   public async getOccurrenceDetail(
@@ -492,7 +497,7 @@ export class SessionService {
 
       canRegister = Boolean(isUserAssignedToSession && !hasRegistration)
       canSub = Boolean(!isUserAssignedToSession && !hasSubSignup)
-      logger.info({ occurrenceId, userId, isUserAssignedToSession }, 'Resolved session assignment status')
+      logger.info({ occurrenceId, userId, isUserAssignedToSession }, logResolvedSessionAssignmentStatus)
 
       return {
         occurrenceId,
