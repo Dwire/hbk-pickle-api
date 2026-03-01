@@ -4,3 +4,4 @@
 - Logging via Pino wrapper Logger; avoid console.log.
 - Run commands through mise (e.g., `mise exec -- just dev`) so pnpm resolves from mise.toml.
 - Registration/sub eligibility enforced in services; roster detail comes from SessionService.getOccurrenceDetail().
+- Session occurrence summary/detail now include assignment flags (isUserAssignedToSession) derived from slot assignments.

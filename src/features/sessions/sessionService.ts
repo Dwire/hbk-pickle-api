@@ -79,6 +79,7 @@ type SessionOccurrenceSummary = {
   registrationCloseAt: Date
   registrationStatus: RegistrationStatus | null
   subSignupStatus: SubSignupStatus | null
+  isUserAssignedToSession: boolean
   attendingCount: number
   subCount: number
 }
@@ -104,6 +105,7 @@ type SessionOccurrenceDetail = {
   canRegister: boolean
   canSub: boolean
   isRegistrationOpen: boolean
+  isUserAssignedToSession: boolean
 }
 
 type OccurrenceWithSession = SessionOccurrenceGetPayload<{
@@ -330,16 +332,38 @@ export class SessionService {
       orderBy: { startsAt: 'asc' }
     })
 
+    const assignedSessionIds = new Set<string>()
+    if (includeUserStatus) {
+      const sessionIds = Array.from(new Set(occurrences.map((occurrence) => occurrence.sessionId)))
+      if (sessionIds.length > 0) {
+        const assignments = await prisma.slotAssignment.findMany({
+          where: { userId: userId as string, sessionId: { in: sessionIds } },
+          select: { sessionId: true }
+        })
+        assignments.forEach((assignment) => assignedSessionIds.add(assignment.sessionId))
+      }
+      logger.info(
+        { userId, sessionCount: sessionIds.length, assignedSessionCount: assignedSessionIds.size },
+        'Loaded session assignment status for sessions week'
+      )
+    }
+
     return occurrences.map((occurrence: (typeof occurrences)[number]) => {
       if (includeUserStatus) {
         const typedOccurrence = occurrence as OccurrenceWithUserData
         const registrationStatus = typedOccurrence.registrations[0]?.status ?? null
         const subSignupStatus = typedOccurrence.subSignups[0]?.status ?? null
+        const isUserAssignedToSession = assignedSessionIds.has(typedOccurrence.sessionId)
 
-        return this.mapOccurrenceToSummary(typedOccurrence, registrationStatus, subSignupStatus)
+        return this.mapOccurrenceToSummary(
+          typedOccurrence,
+          registrationStatus,
+          subSignupStatus,
+          isUserAssignedToSession
+        )
       }
 
-      return this.mapOccurrenceToSummary(occurrence as OccurrenceWithSession, null, null)
+      return this.mapOccurrenceToSummary(occurrence as OccurrenceWithSession, null, null, false)
     })
   }
 
@@ -458,6 +482,7 @@ export class SessionService {
       const assignment = await prisma.slotAssignment.findFirst({
         where: { userId, sessionId: occurrence.sessionId }
       })
+      const isUserAssignedToSession = Boolean(assignment)
       const hasRegistration = await prisma.sessionRegistration.findFirst({
         where: { userId, occurrenceId, status: 'ATTENDING' }
       })
@@ -465,8 +490,22 @@ export class SessionService {
         where: { userId, occurrenceId, status: { in: ['ACTIVE', 'SELECTED'] } }
       })
 
-      canRegister = Boolean(assignment && !hasRegistration)
-      canSub = Boolean(!assignment && !hasSubSignup)
+      canRegister = Boolean(isUserAssignedToSession && !hasRegistration)
+      canSub = Boolean(!isUserAssignedToSession && !hasSubSignup)
+      logger.info({ occurrenceId, userId, isUserAssignedToSession }, 'Resolved session assignment status')
+
+      return {
+        occurrenceId,
+        attendees: attendeeEntries,
+        subs: subEntries,
+        openSpots,
+        registrationOpenAt: registrationWindow.registrationOpenAt,
+        registrationCloseAt: registrationWindow.registrationCloseAt,
+        canRegister,
+        canSub,
+        isRegistrationOpen,
+        isUserAssignedToSession
+      }
     }
 
     return {
@@ -478,7 +517,8 @@ export class SessionService {
       registrationCloseAt: registrationWindow.registrationCloseAt,
       canRegister,
       canSub,
-      isRegistrationOpen
+      isRegistrationOpen,
+      isUserAssignedToSession: false
     }
   }
 
@@ -498,7 +538,8 @@ export class SessionService {
   private mapOccurrenceToSummary(
     occurrence: OccurrenceWithSession,
     registrationStatus: RegistrationStatus | null,
-    subSignupStatus: SubSignupStatus | null
+    subSignupStatus: SubSignupStatus | null,
+    isUserAssignedToSession: boolean
   ): SessionOccurrenceSummary {
     return {
       id: occurrence.id,
@@ -513,6 +554,7 @@ export class SessionService {
       ...this.calculateRegistrationWindow(occurrence.startsAt),
       registrationStatus,
       subSignupStatus,
+      isUserAssignedToSession,
       attendingCount: occurrence._count.registrations,
       subCount: occurrence._count.subSignups
     }

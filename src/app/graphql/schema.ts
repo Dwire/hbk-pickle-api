@@ -74,6 +74,7 @@ const typeDefs = `#graphql
     registrationCloseAt: DateTime!
     registrationStatus: RegistrationStatus
     subSignupStatus: SubSignupStatus
+    isUserAssignedToSession: Boolean!
     attendingCount: Int!
     subCount: Int!
   }
@@ -115,6 +116,7 @@ const typeDefs = `#graphql
     canRegister: Boolean!
     canSub: Boolean!
     isRegistrationOpen: Boolean!
+    isUserAssignedToSession: Boolean!
   }
 
   type AuthPayload {
