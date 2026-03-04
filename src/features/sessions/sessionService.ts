@@ -2,7 +2,7 @@ import type { RegistrationStatus, SubSignupStatus, Weekday } from '../../generat
 import type { SessionOccurrenceGetPayload } from '../../generated/prisma/models/SessionOccurrence.js'
 import { prisma } from '../../shared/prisma.js'
 import { logger } from '../../shared/logger.js'
-import { registrationCloseHour, registrationOpenHour, sessionCapacityDefault } from '../../shared/constants.js'
+import { registrationOpenHour, sessionCapacityDefault } from '../../shared/constants.js'
 
 const easternTimeZone = 'America/New_York'
 const localeEnUs = 'en-US'
@@ -34,6 +34,7 @@ const logSessionSummaryWithoutAssignment = 'Mapping session occurrence summary w
 const logLoadedSessionAssignmentStatus = 'Loaded session assignment status for sessions week'
 const logResolvedSessionAssignmentStatus = 'Resolved session assignment status'
 const logResolvedSessionDisplayStates = 'Resolved session display states'
+const logLoadedUserSessionStatuses = 'Loaded user registration/sub statuses'
 const weekStartHour = 0
 const weekStartMinute = 0
 const weekStartSecond = 0
@@ -131,8 +132,6 @@ type OccurrenceWithUserData = SessionOccurrenceGetPayload<{
   include: {
     session: true
     _count: { select: { registrations: true; subSignups: true } }
-    registrations: { select: { status: true } }
-    subSignups: { select: { status: true } }
   }
 }>
 
@@ -327,20 +326,41 @@ const getEasternWeekRange = (now: Date): { start: Date; end: Date } => {
  */
 export class SessionService {
   public calculateRegistrationWindow(startsAt: Date): SessionWindow {
-    const openAt = new Date(startsAt)
-    openAt.setDate(openAt.getDate() - 1)
-    openAt.setHours(registrationOpenHour, 0, 0, 0)
+    const startsAtParts = getEasternDateTimeParts(startsAt)
+    const startDateParts: DateParts = {
+      year: startsAtParts.year,
+      month: startsAtParts.month,
+      day: startsAtParts.day
+    }
+    const dayBeforeParts = shiftDateByDays(startDateParts, -1)
 
-    const closeAt = new Date(startsAt)
-    closeAt.setDate(closeAt.getDate() - 1)
-    closeAt.setHours(registrationCloseHour, 0, 0, 0)
+    const openAt = easternZonedTimeToUtc({
+      ...dayBeforeParts,
+      hour: registrationOpenHour,
+      minute: 0,
+      second: 0,
+      millisecond: 0
+    })
+
+    const closeAt = startsAt
 
     return { registrationOpenAt: openAt, registrationCloseAt: closeAt }
   }
 
   public isWithinRegistrationWindow(now: Date, startsAt: Date): boolean {
     const { registrationOpenAt, registrationCloseAt } = this.calculateRegistrationWindow(startsAt)
-    return now >= registrationOpenAt && now <= registrationCloseAt
+    const isOpen = now >= registrationOpenAt && now <= registrationCloseAt
+    logger.info(
+      {
+        now,
+        startsAt,
+        registrationOpenAt,
+        registrationCloseAt,
+        isOpen
+      },
+      'Resolved registration window check'
+    )
+    return isOpen
   }
   /**
    * Lists session occurrences for the current Eastern week.
@@ -364,19 +384,16 @@ export class SessionService {
       },
       include: {
         session: true,
-        _count: { select: { registrations: true, subSignups: true } },
-        ...(includeUserStatus
-          ? {
-              registrations: { where: { userId }, select: { status: true }, take: 1 },
-              subSignups: { where: { userId }, select: { status: true }, take: 1 }
-            }
-          : {})
+        _count: { select: { registrations: true, subSignups: true } }
       },
       orderBy: { startsAt: 'asc' }
     })
 
     const assignedSessionIds = new Set<string>()
+    const registrationStatusByOccurrenceId = new Map<string, RegistrationStatus>()
+    const subSignupStatusByOccurrenceId = new Map<string, SubSignupStatus>()
     if (includeUserStatus) {
+      const occurrenceIds = occurrences.map((occurrence) => occurrence.id)
       const sessionIds = Array.from(new Set(occurrences.map((occurrence) => occurrence.sessionId)))
       if (sessionIds.length > 0) {
         const assignments = await prisma.slotAssignment.findMany({
@@ -384,6 +401,32 @@ export class SessionService {
           select: { sessionId: true }
         })
         assignments.forEach((assignment) => assignedSessionIds.add(assignment.sessionId))
+      }
+      if (occurrenceIds.length > 0) {
+        const [registrations, subSignups] = await Promise.all([
+          prisma.sessionRegistration.findMany({
+            where: { userId: userId as string, occurrenceId: { in: occurrenceIds } },
+            select: { occurrenceId: true, status: true }
+          }),
+          prisma.subSignup.findMany({
+            where: { userId: userId as string, occurrenceId: { in: occurrenceIds } },
+            select: { occurrenceId: true, status: true }
+          })
+        ])
+        registrations.forEach((registration) => {
+          registrationStatusByOccurrenceId.set(registration.occurrenceId, registration.status)
+        })
+        subSignups.forEach((signup) => {
+          subSignupStatusByOccurrenceId.set(signup.occurrenceId, signup.status)
+        })
+        logger.info(
+          {
+            userId,
+            registrationCount: registrations.length,
+            subSignupCount: subSignups.length
+          },
+          logLoadedUserSessionStatuses
+        )
       }
       logger.info(
         { userId, sessionCount: sessionIds.length, assignedSessionCount: assignedSessionIds.size },
@@ -393,9 +436,9 @@ export class SessionService {
 
     const summaries = occurrences.map((occurrence: (typeof occurrences)[number]) => {
       if (includeUserStatus) {
-        const typedOccurrence = occurrence as OccurrenceWithUserData
-        const registrationStatus = typedOccurrence.registrations[0]?.status ?? null
-        const subSignupStatus = typedOccurrence.subSignups[0]?.status ?? null
+        const typedOccurrence = occurrence as OccurrenceWithSession
+        const registrationStatus = registrationStatusByOccurrenceId.get(typedOccurrence.id) ?? null
+        const subSignupStatus = subSignupStatusByOccurrenceId.get(typedOccurrence.id) ?? null
         const isUserAssignedToSession = assignedSessionIds.has(typedOccurrence.sessionId)
 
         return this.mapOccurrenceToSummary(

@@ -7,6 +7,7 @@
 ## Core API
 
 - List session occurrences for the current Eastern week (with registration window details).
+- Session summaries include user-specific registration/sub signup status when authenticated.
 - Admin create session templates and weekly occurrences.
 - Admin assign players to recurring session slots.
 
@@ -19,5 +20,5 @@
 ## Data Flow
 
 - Occurrences are the dated instances used for registration and sub availability.
-- Registration windows are derived from occurrence start time.
+- Registration windows open 10am ET the day before and close at session start.
 - Session templates are tied to the default league and referenced by assignments.
