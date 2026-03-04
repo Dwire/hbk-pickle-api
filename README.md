@@ -17,6 +17,7 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - Auth requests log Twilio Verify send/check outcomes for debugging
 - Auth context derives user identity from bearer JWTs for resolvers
 - Weekly (Eastern) session occurrences listing with assignment-aware registration/sub signup rules
+- Session display state (PAST/LIVE/UPCOMING) derived server-side with live window opening 10am ET day before
 - Registration windows and automatic sub cutoffs
 - Admin portal APIs for league/session management
 - Rules page content management

@@ -31,6 +31,12 @@ const typeDefs = `#graphql
     REPLACED
   }
 
+  enum SessionDisplayState {
+    PAST
+    LIVE
+    UPCOMING
+  }
+
   enum Weekday {
     MONDAY
     TUESDAY
@@ -77,6 +83,8 @@ const typeDefs = `#graphql
     isUserAssignedToSession: Boolean!
     attendingCount: Int!
     subCount: Int!
+    displayState: SessionDisplayState!
+    liveOpensAt: DateTime!
   }
 
   type SessionRegistration {
