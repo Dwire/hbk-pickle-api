@@ -6,12 +6,15 @@ const seedLeagueName = 'Seed League'
 const seedLeagueTimeZone = 'America/New_York'
 const seedUserDisplayNamePrefix = 'Seed Player'
 const seedPhonePrefix = '+155500'
+const protectedUserId = '714415e3-5239-4db0-9800-add7cc45c4c9'
+const protectedUserPhoneNumber = '+1555990000'
+const protectedUserDisplayName = 'Seed Protected Player'
 
 const seedWeeks = 2
-const seedUserCount = 30
 const sessionDaysPerWeek = 3
 const sessionsPerDay = 2
 const playersPerSession = 5
+const protectedUserCount = 1
 
 const minutesPerHour = 60
 const sessionDurationMinutes = 90
@@ -61,10 +64,12 @@ const weekdayIndexMap: Record<Weekday, number> = {
   SUNDAY: 0
 }
 
+const totalSessionSlots = sessionDaysPerWeek * sessionsPerDay * playersPerSession
+const seedGeneratedUserCount = totalSessionSlots - protectedUserCount
+
 const ensureSeedCounts = () => {
-  const expectedUsers = sessionDaysPerWeek * sessionsPerDay * playersPerSession
-  if (seedUserCount !== expectedUsers) {
-    throw new Error('Seed user count does not match total session slots')
+  if (seedGeneratedUserCount <= 0) {
+    throw new Error('Seed user count must be greater than zero after reserving protected user')
   }
 }
 
@@ -74,17 +79,17 @@ const addDays = (date: Date, daysToAdd: number) => {
   return next
 }
 
-const getNextWeekStartDate = (weekday: Weekday) => {
+const getCurrentWeekStartDate = () => {
   const today = new Date()
   const baseDate = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()))
   const currentWeekday = baseDate.getUTCDay()
-  const targetWeekday = weekdayIndexMap[weekday]
-  const daysUntilTarget = (targetWeekday - currentWeekday + daysInWeek) % daysInWeek
-  return addDays(baseDate, daysUntilTarget)
+  const mondayIndex = weekdayIndexMap.MONDAY
+  const daysSinceMonday = (currentWeekday - mondayIndex + daysInWeek) % daysInWeek
+  return addDays(baseDate, -daysSinceMonday)
 }
 
 const buildUserData = () =>
-  Array.from({ length: seedUserCount }, (_, index) => {
+  Array.from({ length: seedGeneratedUserCount }, (_, index) => {
     const suffix = String(phoneNumberStart + index).padStart(phoneNumberWidth, '0')
     return {
       phoneNumber: `${seedPhonePrefix}${suffix}`,
@@ -116,62 +121,61 @@ const buildOccurrenceDates = (baseWeekStart: Date, weekday: Weekday, startMinute
   })
 
 const clearSeedData = async () => {
-  const existingLeague = await prisma.league.findFirst({
-    where: { name: seedLeagueName },
-    select: { id: true }
-  })
+  const notificationResult = await prisma.notification.deleteMany()
+  logger.info({ count: notificationResult.count }, 'Cleared notifications')
 
-  if (existingLeague) {
-    const existingSessions = await prisma.session.findMany({
-      where: { leagueId: existingLeague.id },
-      select: { id: true }
-    })
-    const sessionIds = existingSessions.map((session) => session.id)
-    const existingOccurrences = sessionIds.length
-      ? await prisma.sessionOccurrence.findMany({
-          where: { sessionId: { in: sessionIds } },
-          select: { id: true }
-        })
-      : []
-    const occurrenceIds = existingOccurrences.map((occurrence) => occurrence.id)
+  const subSignupResult = await prisma.subSignup.deleteMany()
+  logger.info({ count: subSignupResult.count }, 'Cleared sub signups')
 
-    if (occurrenceIds.length > 0) {
-      await prisma.notification.deleteMany({ where: { occurrenceId: { in: occurrenceIds } } })
-      await prisma.subSignup.deleteMany({ where: { occurrenceId: { in: occurrenceIds } } })
-      await prisma.sessionRegistration.deleteMany({ where: { occurrenceId: { in: occurrenceIds } } })
-      await prisma.sessionOccurrence.deleteMany({ where: { id: { in: occurrenceIds } } })
-    }
+  const registrationResult = await prisma.sessionRegistration.deleteMany()
+  logger.info({ count: registrationResult.count }, 'Cleared session registrations')
 
-    await prisma.slotAssignment.deleteMany({ where: { leagueId: existingLeague.id } })
-    if (sessionIds.length > 0) {
-      await prisma.session.deleteMany({ where: { id: { in: sessionIds } } })
-    }
-    await prisma.leagueRule.deleteMany({ where: { leagueId: existingLeague.id } })
-    await prisma.league.delete({ where: { id: existingLeague.id } })
+  const assignmentResult = await prisma.slotAssignment.deleteMany()
+  logger.info({ count: assignmentResult.count }, 'Cleared slot assignments')
+
+  const occurrenceResult = await prisma.sessionOccurrence.deleteMany()
+  logger.info({ count: occurrenceResult.count }, 'Cleared session occurrences')
+
+  const sessionResult = await prisma.session.deleteMany()
+  logger.info({ count: sessionResult.count }, 'Cleared sessions')
+
+  const ruleResult = await prisma.leagueRule.deleteMany()
+  logger.info({ count: ruleResult.count }, 'Cleared league rules')
+
+  const leagueResult = await prisma.league.deleteMany()
+  logger.info({ count: leagueResult.count }, 'Cleared leagues')
+
+  const deviceResult = await prisma.userDevice.deleteMany()
+  logger.info({ count: deviceResult.count }, 'Cleared user devices')
+
+  const userResult = await prisma.user.deleteMany({ where: { id: { not: protectedUserId } } })
+  logger.info({ count: userResult.count }, 'Cleared users (excluding protected user)')
+}
+
+const ensureProtectedUser = async () => {
+  const existingUser = await prisma.user.findUnique({ where: { id: protectedUserId } })
+  if (existingUser) {
+    logger.info({ userId: protectedUserId }, 'Protected user already exists')
+    return existingUser
   }
 
-  const seedUsers = await prisma.user.findMany({
-    where: { phoneNumber: { startsWith: seedPhonePrefix } },
-    select: { id: true }
+  const createdUser = await prisma.user.create({
+    data: {
+      id: protectedUserId,
+      phoneNumber: protectedUserPhoneNumber,
+      displayName: protectedUserDisplayName,
+      role: 'PLAYER'
+    }
   })
-  const seedUserIds = seedUsers.map((user) => user.id)
-  if (seedUserIds.length === 0) {
-    return
-  }
-
-  await prisma.notification.deleteMany({ where: { userId: { in: seedUserIds } } })
-  await prisma.subSignup.deleteMany({ where: { userId: { in: seedUserIds } } })
-  await prisma.sessionRegistration.deleteMany({ where: { userId: { in: seedUserIds } } })
-  await prisma.slotAssignment.deleteMany({ where: { userId: { in: seedUserIds } } })
-  await prisma.userDevice.deleteMany({ where: { userId: { in: seedUserIds } } })
-  await prisma.user.deleteMany({ where: { id: { in: seedUserIds } } })
+  logger.info({ userId: createdUser.id }, 'Created protected user')
+  return createdUser
 }
 
 const seedLeague = async () => {
   ensureSeedCounts()
   await clearSeedData()
 
-  const baseWeekStart = getNextWeekStartDate('MONDAY')
+  const baseWeekStart = getCurrentWeekStartDate()
   const leagueEndDate = addDays(baseWeekStart, daysInWeek * seedWeeks)
 
   const league = await prisma.league.create({
@@ -184,12 +188,14 @@ const seedLeague = async () => {
     }
   })
 
+  const protectedUser = await ensureProtectedUser()
   const userData = buildUserData()
   await prisma.user.createMany({ data: userData })
-  const users = await prisma.user.findMany({
+  const seedUsers = await prisma.user.findMany({
     where: { phoneNumber: { startsWith: seedPhonePrefix } },
     orderBy: { phoneNumber: 'asc' }
   })
+  const users = [protectedUser, ...seedUsers]
 
   const sessionTemplates = buildSessionTemplates()
   const sessions = await Promise.all(
@@ -216,6 +222,25 @@ const seedLeague = async () => {
       userId: user.id
     }))
   })
+
+  const protectedUserAssigned = assignments.some((assignment) => assignment.userId === protectedUser.id)
+  if (!protectedUserAssigned) {
+    const fallbackSession = sessions[0]
+    const fallbackSessionTitle = fallbackSession?.title
+    if (!fallbackSession) {
+      throw new Error('No sessions available to assign protected user')
+    }
+
+    assignments.push({
+      leagueId: league.id,
+      sessionId: fallbackSession.id,
+      userId: protectedUser.id
+    })
+    logger.info(
+      { userId: protectedUser.id, sessionId: fallbackSession.id, sessionTitle: fallbackSessionTitle },
+      'Assigned protected user to fallback session'
+    )
+  }
 
   if (assignments.length > 0) {
     await prisma.slotAssignment.createMany({ data: assignments })
