@@ -26,9 +26,14 @@ const sundayIndex = 0
 const mondayIndex = 1
 const daysPerWeek = 7
 const millisecondsPerMinute = 60_000
+const liveOpenHour = 10
+const liveOpenMinute = 0
+const liveOpenSecond = 0
+const liveOpenMillisecond = 0
 const logSessionSummaryWithoutAssignment = 'Mapping session occurrence summary without assignment context'
 const logLoadedSessionAssignmentStatus = 'Loaded session assignment status for sessions week'
 const logResolvedSessionAssignmentStatus = 'Resolved session assignment status'
+const logResolvedSessionDisplayStates = 'Resolved session display states'
 const weekStartHour = 0
 const weekStartMinute = 0
 const weekStartSecond = 0
@@ -68,6 +73,8 @@ export type SessionWindow = {
   registrationCloseAt: Date
 }
 
+export type SessionDisplayState = 'PAST' | 'LIVE' | 'UPCOMING'
+
 type SessionOccurrenceSummary = {
   id: string
   sessionId: string
@@ -85,6 +92,8 @@ type SessionOccurrenceSummary = {
   isUserAssignedToSession: boolean
   attendingCount: number
   subCount: number
+  displayState: SessionDisplayState
+  liveOpensAt: Date
 }
 
 type SessionRosterEntry = {
@@ -225,6 +234,36 @@ const easternZonedTimeToUtc = (local: LocalDateTime): Date => {
   return new Date(utcGuess.getTime() - offsetMinutes * millisecondsPerMinute)
 }
 
+const calculateLiveOpensAt = (startsAt: Date): Date => {
+  const startsAtParts = getEasternDateTimeParts(startsAt)
+  const startDateParts: DateParts = {
+    year: startsAtParts.year,
+    month: startsAtParts.month,
+    day: startsAtParts.day
+  }
+  const dayBeforeParts = shiftDateByDays(startDateParts, -1)
+
+  return easternZonedTimeToUtc({
+    ...dayBeforeParts,
+    hour: liveOpenHour,
+    minute: liveOpenMinute,
+    second: liveOpenSecond,
+    millisecond: liveOpenMillisecond
+  })
+}
+
+const getSessionDisplayState = (now: Date, endsAt: Date, liveOpensAt: Date): SessionDisplayState => {
+  if (endsAt.getTime() <= now.getTime()) {
+    return 'PAST'
+  }
+
+  if (now.getTime() >= liveOpensAt.getTime()) {
+    return 'LIVE'
+  }
+
+  return 'UPCOMING'
+}
+
 export const getEasternDateParts = (date: Date): DateParts => {
   const parts = getEasternDateTimeParts(date)
   return {
@@ -317,6 +356,7 @@ export class SessionService {
 
   public async listSessions(start: Date, end: Date, userId?: string | null): Promise<SessionOccurrenceSummary[]> {
     const includeUserStatus = typeof userId === 'string' && userId.length > 0
+    const now = new Date()
     const occurrences = await prisma.sessionOccurrence.findMany({
       where: {
         startsAt: { gte: start },
@@ -351,7 +391,7 @@ export class SessionService {
       )
     }
 
-    return occurrences.map((occurrence: (typeof occurrences)[number]) => {
+    const summaries = occurrences.map((occurrence: (typeof occurrences)[number]) => {
       if (includeUserStatus) {
         const typedOccurrence = occurrence as OccurrenceWithUserData
         const registrationStatus = typedOccurrence.registrations[0]?.status ?? null
@@ -362,12 +402,24 @@ export class SessionService {
           typedOccurrence,
           registrationStatus,
           subSignupStatus,
-          isUserAssignedToSession
+          isUserAssignedToSession,
+          now
         )
       }
 
-      return this.mapOccurrenceToSummary(occurrence as OccurrenceWithSession, null, null, false)
+      return this.mapOccurrenceToSummary(occurrence as OccurrenceWithSession, null, null, false, now)
     })
+
+    const displayStateCounts = summaries.reduce<Record<SessionDisplayState, number>>(
+      (counts, summary) => {
+        counts[summary.displayState] += 1
+        return counts
+      },
+      { PAST: 0, LIVE: 0, UPCOMING: 0 }
+    )
+    logger.info({ displayStateCounts }, logResolvedSessionDisplayStates)
+
+    return summaries
   }
 
   public async createSession(
@@ -424,7 +476,7 @@ export class SessionService {
 
     const isUserAssignedToSession = false
     logger.info({ occurrenceId, isUserAssignedToSession }, logSessionSummaryWithoutAssignment)
-    return this.mapOccurrenceToSummary(occurrence, null, null, isUserAssignedToSession)
+    return this.mapOccurrenceToSummary(occurrence, null, null, isUserAssignedToSession, new Date())
   }
 
   public async getOccurrenceDetail(
@@ -544,8 +596,11 @@ export class SessionService {
     occurrence: OccurrenceWithSession,
     registrationStatus: RegistrationStatus | null,
     subSignupStatus: SubSignupStatus | null,
-    isUserAssignedToSession: boolean
+    isUserAssignedToSession: boolean,
+    now: Date
   ): SessionOccurrenceSummary {
+    const liveOpensAt = calculateLiveOpensAt(occurrence.startsAt)
+    const displayState = getSessionDisplayState(now, occurrence.endsAt, liveOpensAt)
     return {
       id: occurrence.id,
       sessionId: occurrence.sessionId,
@@ -561,7 +616,9 @@ export class SessionService {
       subSignupStatus,
       isUserAssignedToSession,
       attendingCount: occurrence._count.registrations,
-      subCount: occurrence._count.subSignups
+      subCount: occurrence._count.subSignups,
+      displayState,
+      liveOpensAt
     }
   }
 }
