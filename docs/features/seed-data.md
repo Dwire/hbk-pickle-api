@@ -6,7 +6,8 @@
 
 ## Core API
 
-- Seed script creates a two-week league, 30 users, recurring session templates, occurrences, and slot assignments.
+- Seed script clears existing data, preserves a protected user, and creates a two-week league for the current and following week.
+- Sessions, occurrences, and slot assignments are re-created on each run.
 
 ## Key Files
 
@@ -15,6 +16,6 @@
 
 ## Data Flow
 
-- Seed resets any prior seed league/users by identifier, then inserts a fresh league.
-- Sessions are created for three weekdays with two templates per day.
-- Occurrences are created for two weeks, and assignments stay consistent across weeks.
+- Seed wipes all records, excluding the protected user ID, and recreates leagues/sessions/occurrences/assignments.
+- Occurrences always target the current week (Monday start) plus the following week.
+- The protected user is always assigned to a session.
