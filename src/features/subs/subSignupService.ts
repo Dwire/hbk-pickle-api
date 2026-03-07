@@ -21,10 +21,12 @@ export class SubSignupService {
 
     const sessionService = new SessionService()
     const now = new Date()
+    const logSubSignupOutsideWindow = 'Sub signup attempt outside window'
+    const errorSubSignupWindowClosed = 'Sub signup window closed'
 
-    if (!sessionService.isWithinRegistrationWindow(now, occurrence.startsAt)) {
-      logger.warn({ occurrenceId, userId }, 'Sub signup attempt outside window')
-      throw new Error('Registration window closed')
+    if (!sessionService.isWithinSubSignupWindow(now, occurrence.endsAt)) {
+      logger.warn({ occurrenceId, userId }, logSubSignupOutsideWindow)
+      throw new Error(errorSubSignupWindowClosed)
     }
 
     const assignment = await prisma.slotAssignment.findFirst({

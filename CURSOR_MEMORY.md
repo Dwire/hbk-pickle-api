@@ -6,4 +6,7 @@
 - Registration/sub eligibility enforced in services; roster detail comes from SessionService.getOccurrenceDetail().
 - Session occurrence summary/detail now include assignment flags (isUserAssignedToSession) derived from slot assignments.
 - Session summaries include displayState and liveOpensAt derived in Eastern time (live opens 10am ET day before).
-- Registration window now opens 10am ET day before and closes at session start (ET-based conversion), with info logs in `isWithinRegistrationWindow()`.
+- Display state comparisons use Eastern wall-clock timestamps so sessions only become PAST after their listed end time.
+- Registration window opens 10am ET day before and closes at 7pm ET day before, with info logs in `isWithinRegistrationWindow()`.
+- Sub signup window remains open until session end using `isWithinSubSignupWindow(now, occurrence.endsAt)`.
+- sessionsWeek subSignupStatus filtering now returns only ACTIVE sub signups for the current user.

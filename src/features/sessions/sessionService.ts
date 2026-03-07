@@ -2,7 +2,7 @@ import type { RegistrationStatus, SubSignupStatus, Weekday } from '../../generat
 import type { SessionOccurrenceGetPayload } from '../../generated/prisma/models/SessionOccurrence.js'
 import { prisma } from '../../shared/prisma.js'
 import { logger } from '../../shared/logger.js'
-import { registrationOpenHour, sessionCapacityDefault } from '../../shared/constants.js'
+import { registrationCloseHour, registrationOpenHour, sessionCapacityDefault } from '../../shared/constants.js'
 
 const easternTimeZone = 'America/New_York'
 const localeEnUs = 'en-US'
@@ -34,7 +34,13 @@ const logSessionSummaryWithoutAssignment = 'Mapping session occurrence summary w
 const logLoadedSessionAssignmentStatus = 'Loaded session assignment status for sessions week'
 const logResolvedSessionAssignmentStatus = 'Resolved session assignment status'
 const logResolvedSessionDisplayStates = 'Resolved session display states'
+const logResolvedSessionDisplayStateComparison = 'Resolved session display state comparison'
 const logLoadedUserSessionStatuses = 'Loaded user registration/sub statuses'
+const logResolvedRegistrationWindow = 'Resolved registration window check'
+const logResolvedSubSignupWindow = 'Resolved sub signup window check'
+const logLoadedUserSubSignupStatuses = 'Loaded user sub signup statuses'
+const logFilteredUserSubSignupStatuses = 'Filtered user sub signup statuses to active'
+const logLoadedActiveSubSignupCounts = 'Loaded active sub signup counts'
 const weekStartHour = 0
 const weekStartMinute = 0
 const weekStartSecond = 0
@@ -43,6 +49,16 @@ const weekEndHour = 23
 const weekEndMinute = 59
 const weekEndSecond = 59
 const weekEndMillisecond = 999
+const subSignupStatusActive: SubSignupStatus = 'ACTIVE'
+const subSignupStatusSelected: SubSignupStatus = 'SELECTED'
+const subSignupStatusReplaced: SubSignupStatus = 'REPLACED'
+const subSignupStatusCanceled: SubSignupStatus = 'CANCELED'
+const subSignupStatusCountsInitial: Record<SubSignupStatus, number> = {
+  ACTIVE: 0,
+  SELECTED: 0,
+  REPLACED: 0,
+  CANCELED: 0
+}
 const weekdayIndexByLabel: Record<string, number> = {
   [weekdayLabelSun]: sundayIndex,
   [weekdayLabelMon]: mondayIndex,
@@ -72,6 +88,7 @@ const easternWeekdayFormat = new Intl.DateTimeFormat(localeEnUs, {
 export type SessionWindow = {
   registrationOpenAt: Date
   registrationCloseAt: Date
+  subSignupCloseAt: Date
 }
 
 export type SessionDisplayState = 'PAST' | 'LIVE' | 'UPCOMING'
@@ -180,6 +197,25 @@ const getEasternDateTimeParts = (date: Date): DateTimeParts => {
   }
 }
 
+const getStoredEasternDateTimeParts = (date: Date): DateTimeParts => ({
+  year: date.getUTCFullYear(),
+  month: date.getUTCMonth() + 1,
+  day: date.getUTCDate(),
+  hour: date.getUTCHours(),
+  minute: date.getUTCMinutes(),
+  second: date.getUTCSeconds()
+})
+
+const getUtcDateTimeParts = (date: Date): LocalDateTime => ({
+  year: date.getUTCFullYear(),
+  month: date.getUTCMonth() + 1,
+  day: date.getUTCDate(),
+  hour: date.getUTCHours(),
+  minute: date.getUTCMinutes(),
+  second: date.getUTCSeconds(),
+  millisecond: date.getUTCMilliseconds()
+})
+
 const getEasternWeekdayIndex = (date: Date): number => {
   const label = easternWeekdayFormat.format(date)
   return weekdayIndexByLabel[label] ?? sundayIndex
@@ -233,8 +269,21 @@ const easternZonedTimeToUtc = (local: LocalDateTime): Date => {
   return new Date(utcGuess.getTime() - offsetMinutes * millisecondsPerMinute)
 }
 
+const toEasternWallClockTimestamp = (parts: LocalDateTime): number =>
+  Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second, parts.millisecond)
+
+const getEasternWallClockTimestamp = (date: Date): number => {
+  const easternParts = getEasternDateTimeParts(date)
+  return toEasternWallClockTimestamp({ ...easternParts, millisecond: date.getUTCMilliseconds() })
+}
+
+const getStoredEasternWallClockTimestamp = (date: Date): number => {
+  const utcParts = getUtcDateTimeParts(date)
+  return toEasternWallClockTimestamp(utcParts)
+}
+
 const calculateLiveOpensAt = (startsAt: Date): Date => {
-  const startsAtParts = getEasternDateTimeParts(startsAt)
+  const startsAtParts = getStoredEasternDateTimeParts(startsAt)
   const startDateParts: DateParts = {
     year: startsAtParts.year,
     month: startsAtParts.month,
@@ -251,12 +300,40 @@ const calculateLiveOpensAt = (startsAt: Date): Date => {
   })
 }
 
+const calculateSubSignupCloseAt = (endsAt: Date): Date => {
+  const endsAtParts = getStoredEasternDateTimeParts(endsAt)
+  return easternZonedTimeToUtc({
+    year: endsAtParts.year,
+    month: endsAtParts.month,
+    day: endsAtParts.day,
+    hour: endsAtParts.hour,
+    minute: endsAtParts.minute,
+    second: endsAtParts.second,
+    millisecond: 0
+  })
+}
+
 const getSessionDisplayState = (now: Date, endsAt: Date, liveOpensAt: Date): SessionDisplayState => {
-  if (endsAt.getTime() <= now.getTime()) {
+  const nowEasternTimestamp = getEasternWallClockTimestamp(now)
+  const endsAtEasternTimestamp = getStoredEasternWallClockTimestamp(endsAt)
+  const liveOpensAtEasternTimestamp = getStoredEasternWallClockTimestamp(liveOpensAt)
+  logger.info(
+    {
+      now,
+      endsAt,
+      liveOpensAt,
+      nowEasternTimestamp,
+      endsAtEasternTimestamp,
+      liveOpensAtEasternTimestamp
+    },
+    logResolvedSessionDisplayStateComparison
+  )
+
+  if (endsAtEasternTimestamp <= nowEasternTimestamp) {
     return 'PAST'
   }
 
-  if (now.getTime() >= liveOpensAt.getTime()) {
+  if (nowEasternTimestamp >= liveOpensAtEasternTimestamp) {
     return 'LIVE'
   }
 
@@ -326,7 +403,7 @@ const getEasternWeekRange = (now: Date): { start: Date; end: Date } => {
  */
 export class SessionService {
   public calculateRegistrationWindow(startsAt: Date): SessionWindow {
-    const startsAtParts = getEasternDateTimeParts(startsAt)
+    const startsAtParts = getStoredEasternDateTimeParts(startsAt)
     const startDateParts: DateParts = {
       year: startsAtParts.year,
       month: startsAtParts.month,
@@ -342,9 +419,16 @@ export class SessionService {
       millisecond: 0
     })
 
-    const closeAt = startsAt
+    const closeAt = easternZonedTimeToUtc({
+      ...dayBeforeParts,
+      hour: registrationCloseHour,
+      minute: 0,
+      second: 0,
+      millisecond: 0
+    })
+    const subSignupCloseAt = calculateSubSignupCloseAt(startsAt)
 
-    return { registrationOpenAt: openAt, registrationCloseAt: closeAt }
+    return { registrationOpenAt: openAt, registrationCloseAt: closeAt, subSignupCloseAt }
   }
 
   public isWithinRegistrationWindow(now: Date, startsAt: Date): boolean {
@@ -358,7 +442,22 @@ export class SessionService {
         registrationCloseAt,
         isOpen
       },
-      'Resolved registration window check'
+      logResolvedRegistrationWindow
+    )
+    return isOpen
+  }
+
+  public isWithinSubSignupWindow(now: Date, endsAt: Date): boolean {
+    const subSignupCloseAt = calculateSubSignupCloseAt(endsAt)
+    const isOpen = now <= subSignupCloseAt
+    logger.info(
+      {
+        now,
+        endsAt,
+        subSignupCloseAt,
+        isOpen
+      },
+      logResolvedSubSignupWindow
     )
     return isOpen
   }
@@ -389,6 +488,25 @@ export class SessionService {
       orderBy: { startsAt: 'asc' }
     })
 
+    const activeSubCountByOccurrenceId = new Map<string, number>()
+    if (occurrences.length > 0) {
+      const activeSubCounts = await prisma.subSignup.groupBy({
+        by: ['occurrenceId'],
+        where: {
+          occurrenceId: { in: occurrences.map((occurrence) => occurrence.id) },
+          status: subSignupStatusActive
+        },
+        _count: { _all: true }
+      })
+      activeSubCounts.forEach((countEntry) => {
+        activeSubCountByOccurrenceId.set(countEntry.occurrenceId, countEntry._count._all)
+      })
+      logger.info(
+        { occurrenceCount: occurrences.length, activeSubSignupCounts: activeSubCounts.length },
+        logLoadedActiveSubSignupCounts
+      )
+    }
+
     const assignedSessionIds = new Set<string>()
     const registrationStatusByOccurrenceId = new Map<string, RegistrationStatus>()
     const subSignupStatusByOccurrenceId = new Map<string, SubSignupStatus>()
@@ -409,7 +527,11 @@ export class SessionService {
             select: { occurrenceId: true, status: true }
           }),
           prisma.subSignup.findMany({
-            where: { userId: userId as string, occurrenceId: { in: occurrenceIds } },
+            where: {
+              userId: userId as string,
+              occurrenceId: { in: occurrenceIds },
+              status: subSignupStatusActive
+            },
             select: { occurrenceId: true, status: true }
           })
         ])
@@ -419,6 +541,13 @@ export class SessionService {
         subSignups.forEach((signup) => {
           subSignupStatusByOccurrenceId.set(signup.occurrenceId, signup.status)
         })
+        const subSignupStatusCounts = subSignups.reduce<Record<SubSignupStatus, number>>(
+          (counts, signup) => {
+            counts[signup.status] = (counts[signup.status] ?? 0) + 1
+            return counts
+          },
+          { ...subSignupStatusCountsInitial }
+        )
         logger.info(
           {
             userId,
@@ -427,6 +556,15 @@ export class SessionService {
           },
           logLoadedUserSessionStatuses
         )
+        logger.info(
+          {
+            userId,
+            allowedStatuses: [subSignupStatusActive],
+            filteredOutStatuses: [subSignupStatusCanceled, subSignupStatusSelected, subSignupStatusReplaced]
+          },
+          logFilteredUserSubSignupStatuses
+        )
+        logger.info({ userId, subSignupStatusCounts }, logLoadedUserSubSignupStatuses)
       }
       logger.info(
         { userId, sessionCount: sessionIds.length, assignedSessionCount: assignedSessionIds.size },
@@ -441,16 +579,26 @@ export class SessionService {
         const subSignupStatus = subSignupStatusByOccurrenceId.get(typedOccurrence.id) ?? null
         const isUserAssignedToSession = assignedSessionIds.has(typedOccurrence.sessionId)
 
+        const activeSubCount = activeSubCountByOccurrenceId.get(typedOccurrence.id) ?? 0
         return this.mapOccurrenceToSummary(
           typedOccurrence,
           registrationStatus,
           subSignupStatus,
           isUserAssignedToSession,
+          activeSubCount,
           now
         )
       }
 
-      return this.mapOccurrenceToSummary(occurrence as OccurrenceWithSession, null, null, false, now)
+      const activeSubCount = activeSubCountByOccurrenceId.get(occurrence.id) ?? 0
+      return this.mapOccurrenceToSummary(
+        occurrence as OccurrenceWithSession,
+        null,
+        null,
+        false,
+        activeSubCount,
+        now
+      )
     })
 
     const displayStateCounts = summaries.reduce<Record<SessionDisplayState, number>>(
@@ -517,9 +665,12 @@ export class SessionService {
       throw new Error('Session occurrence missing')
     }
 
+    const activeSubCount = await prisma.subSignup.count({
+      where: { occurrenceId, status: subSignupStatusActive }
+    })
     const isUserAssignedToSession = false
     logger.info({ occurrenceId, isUserAssignedToSession }, logSessionSummaryWithoutAssignment)
-    return this.mapOccurrenceToSummary(occurrence, null, null, isUserAssignedToSession, new Date())
+    return this.mapOccurrenceToSummary(occurrence, null, null, isUserAssignedToSession, activeSubCount, new Date())
   }
 
   public async getOccurrenceDetail(
@@ -536,7 +687,7 @@ export class SessionService {
           orderBy: { createdAt: 'asc' }
         },
         subSignups: {
-          where: { status: { in: ['ACTIVE', 'SELECTED', 'REPLACED'] } },
+          where: { status: { in: [subSignupStatusActive, subSignupStatusSelected, subSignupStatusReplaced] } },
           include: { user: true },
           orderBy: { createdAt: 'asc' }
         }
@@ -587,7 +738,7 @@ export class SessionService {
         where: { userId, occurrenceId, status: 'ATTENDING' }
       })
       const hasSubSignup = await prisma.subSignup.findFirst({
-        where: { userId, occurrenceId, status: { in: ['ACTIVE', 'SELECTED'] } }
+        where: { userId, occurrenceId, status: { in: [subSignupStatusActive, subSignupStatusSelected] } }
       })
 
       canRegister = Boolean(isUserAssignedToSession && !hasRegistration)
@@ -640,6 +791,7 @@ export class SessionService {
     registrationStatus: RegistrationStatus | null,
     subSignupStatus: SubSignupStatus | null,
     isUserAssignedToSession: boolean,
+    activeSubCount: number,
     now: Date
   ): SessionOccurrenceSummary {
     const liveOpensAt = calculateLiveOpensAt(occurrence.startsAt)
@@ -659,7 +811,7 @@ export class SessionService {
       subSignupStatus,
       isUserAssignedToSession,
       attendingCount: occurrence._count.registrations,
-      subCount: occurrence._count.subSignups,
+      subCount: activeSubCount,
       displayState,
       liveOpensAt
     }
