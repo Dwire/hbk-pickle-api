@@ -27,3 +27,4 @@
 - Session templates are tied to the default league and referenced by assignments.
 - sessionsWeek sub signup status returns only ACTIVE records for the current user (canceled/selected/replaced are excluded).
 - Session occurrence summaries report subCount using ACTIVE sub signups only (canceled/selected/replaced excluded).
+- Session occurrence summaries report attendingCount using ATTENDING registrations only (canceled/declined excluded).

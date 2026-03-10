@@ -21,6 +21,7 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - Registration windows open 10am ET day before and close at 7pm ET day before; sub signups remain open until the session ends (Eastern rules applied to UTC instants)
 - sessionsWeek sub signup status returns only ACTIVE sub signups for the current user
 - sessionsWeek subCount reflects ACTIVE sub signups only (canceled/selected/replaced excluded)
+- sessionsWeek attendingCount reflects ATTENDING registrations only (canceled/declined excluded)
 - Admin portal APIs for league/session management
 - Rules page content management
 - Notification scheduling and delivery
