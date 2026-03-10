@@ -57,3 +57,8 @@ prisma-generate:
 
 seed: typecheck
 	pnpm exec tsx src/scripts/seed.ts
+
+# Reset database (schema push) and reseed demo data.
+# Parameters: none.
+
+reset-seed: db-push seed

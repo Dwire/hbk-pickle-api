@@ -6,7 +6,7 @@
 
 ## Core API
 
-- Seed script clears existing data, preserves a protected user, and creates a two-week league for the current and following week.
+- Seed script clears existing data, preserves a protected user, and creates a two-week league for the current and following week using UTC instants derived from Eastern rules.
 - Sessions, occurrences, and slot assignments are re-created on each run.
 
 ## Key Files
@@ -17,5 +17,5 @@
 ## Data Flow
 
 - Seed wipes all records, excluding the protected user ID, and recreates leagues/sessions/occurrences/assignments.
-- Occurrences always target the current week (Monday start) plus the following week.
+- Occurrences target the current Eastern week (Monday start) plus the following week and are stored as UTC instants.
 - The protected user is always assigned to a session.

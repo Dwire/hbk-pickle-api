@@ -4,6 +4,7 @@ import { logger } from '../../shared/logger.js'
 import { registrationCloseWarningMinutes, sessionStartWarningMinutes } from '../../shared/constants.js'
 import { SessionService } from '../../features/sessions/sessionService.js'
 import { SubSelectionService } from '../../features/subs/subSelectionService.js'
+import { getEasternRegistrationCloseWarningAt } from '../../shared/time.js'
 
 type QueuePayload = {
   notificationId: string
@@ -22,9 +23,10 @@ export class RegistrationScheduler {
     })
 
     for (const occurrence of upcoming) {
-      const closeWarningAt = new Date(occurrence.startsAt)
-      closeWarningAt.setDate(closeWarningAt.getDate() - 1)
-      closeWarningAt.setHours(21, -registrationCloseWarningMinutes, 0, 0)
+      const closeWarningAt = getEasternRegistrationCloseWarningAt(
+        occurrence.startsAt,
+        registrationCloseWarningMinutes
+      )
 
       if (closeWarningAt <= now) {
         continue
@@ -72,8 +74,7 @@ export class RegistrationScheduler {
     })
 
     for (const occurrence of upcoming) {
-      const warningAt = new Date(occurrence.startsAt)
-      warningAt.setMinutes(warningAt.getMinutes() - sessionStartWarningMinutes)
+      const warningAt = new Date(occurrence.startsAt.getTime() - sessionStartWarningMinutes * 60_000)
 
       if (warningAt <= now) {
         continue

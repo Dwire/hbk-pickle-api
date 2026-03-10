@@ -3,7 +3,7 @@
 ## Purpose
 
 - Allow players to offer as substitutes for weekly occurrences outside their assigned slot.
-- Keep sub signup availability open until the session occurrence ends (Eastern time).
+- Keep sub signup availability open until the session occurrence ends (Eastern rules applied to UTC instants).
 
 ## Core API
 

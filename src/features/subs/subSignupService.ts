@@ -1,6 +1,7 @@
 import { prisma } from '../../shared/prisma.js'
 import { logger } from '../../shared/logger.js'
-import { SessionService, getEasternDayRangeUtc } from '../sessions/sessionService.js'
+import { SessionService } from '../sessions/sessionService.js'
+import { getEasternDayRangeUtc } from '../../shared/time.js'
 
 /**
  * SubSignupService
