@@ -42,6 +42,12 @@ type SessionTemplateConfig = {
   capacity: number
 }
 
+type LeagueRuleSeed = {
+  title: string
+  body: string
+  order: number
+}
+
 const sessionTimeConfigs: SessionTimeConfig[] = [
   {
     label: 'Early',
@@ -99,6 +105,76 @@ const buildSessionTemplates = (): SessionTemplateConfig[] =>
       capacity: playersPerSession
     }))
   )
+
+const buildLeagueRules = (leagueId: string) => {
+  const rules: LeagueRuleSeed[] = [
+    {
+      order: 1,
+      title: 'Registration Required',
+      body: 'Players must be registered for indoor pickleball to participate in any session.'
+    },
+    {
+      order: 2,
+      title: 'Session Capacity',
+      body: 'A maximum of 16-18 players per session (Monday 7am - 19 players).'
+    },
+    {
+      order: 3,
+      title: 'Subbing',
+      body:
+        'Players may sub in when spots are available due to sickness or absence, but no swapping spots during a session. Permanent swaps are only allowed at the start of a season with a valid excuse.'
+    },
+    {
+      order: 4,
+      title: 'Session Limit',
+      body: 'Players are allowed to participate in only one session per day, even if subbing.'
+    },
+    {
+      order: 5,
+      title: 'Equipment',
+      body: 'Players must bring their own paddles. The city will provide the balls.'
+    },
+    {
+      order: 6,
+      title: 'Game Rotation',
+      body:
+        '- Winners stay and split to play a second game, then rotate from the paddle rack.\n- Losers rotate from the paddle rack.'
+    },
+    {
+      order: 7,
+      title: 'Morning Session Duty',
+      body: 'Players in the early morning session are responsible for helping monitors set up the nets and prepare the space.'
+    },
+    {
+      order: 8,
+      title: 'Afternoon Session Duty',
+      body: 'Players in the last session are responsible for helping monitors store the equipment.'
+    },
+    {
+      order: 9,
+      title: 'Court Issues',
+      body: 'Any questions, concerns, or issues on the courts must be addressed to the monitors on site.'
+    },
+    {
+      order: 10,
+      title: 'Injury Reporting',
+      body:
+        'Any injury requiring ice, band-aids, or medical attention must be reported to the monitor before leaving the gym. An accident report must also be filled out.'
+    },
+    {
+      order: 11,
+      title: 'Spectators',
+      body: 'No children or adult spectators are allowed in the gym during pickleball games.'
+    }
+  ]
+
+  return rules.map((rule) => ({
+    leagueId,
+    title: rule.title,
+    body: rule.body,
+    order: rule.order
+  }))
+}
 
 const buildOccurrenceDates = (baseWeekStart: Date, weekday: Weekday, startMinutes: number, endMinutes: number) =>
   Array.from({ length: seedWeeks }, (_, weekIndex) => {
@@ -198,6 +274,12 @@ const seedLeague = async () => {
     }
   })
 
+  const leagueRules = buildLeagueRules(league.id)
+  if (leagueRules.length > 0) {
+    const rulesResult = await prisma.leagueRule.createMany({ data: leagueRules })
+    logger.info({ count: rulesResult.count }, 'Seeded league rules')
+  }
+
   const protectedUser = await ensureProtectedUser()
   const userData = buildUserData()
   await prisma.user.createMany({ data: userData })
@@ -276,7 +358,8 @@ const seedLeague = async () => {
       users: users.length,
       sessions: sessions.length,
       occurrences: occurrences.length,
-      assignments: assignments.length
+      assignments: assignments.length,
+      rules: leagueRules.length
     },
     'Seed data created'
   )

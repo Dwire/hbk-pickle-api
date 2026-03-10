@@ -12,3 +12,4 @@
 - GraphQL DateTime enforces UTC-only (Z/+00:00) with UTC serialization.
 - Seed data and scheduler timing use shared UTC/Eastern utilities.
 - sessionsWeek subSignupStatus filtering now returns only ACTIVE sub signups for the current user.
+- Seed script now creates default league rules for the demo league.
