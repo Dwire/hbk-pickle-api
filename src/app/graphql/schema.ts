@@ -8,6 +8,7 @@ import { RegistrationService } from '../../features/registrations/registrationSe
 import { RuleService } from '../../features/rules/ruleService.js'
 import { SessionService } from '../../features/sessions/sessionService.js'
 import { SubSignupService } from '../../features/subs/subSignupService.js'
+import { UserService } from '../../features/users/userService.js'
 import { Weekday } from '../../generated/prisma/client.js'
 import type { AppContext } from '../context.js'
 import { requireAuth } from '../auth.js'
@@ -195,6 +196,7 @@ const typeDefs = `#graphql
     requestPhoneVerification(phoneNumber: String!): Boolean!
     verifyPhoneCode(phoneNumber: String!, code: String!): AuthPayload!
     registerDevice(token: String!, platform: String!): Boolean!
+    updateDisplayName(displayName: String!): User!
 
     registerForSession(occurrenceId: ID!): SessionRegistration!
     cancelRegistration(occurrenceId: ID!): SessionRegistration!
@@ -258,6 +260,11 @@ const resolvers = {
         update: { platform: args.platform, userId }
       })
       return true
+    },
+    updateDisplayName: async (_: unknown, args: { displayName: string }, context: AppContext) => {
+      const userId = requireAuth(context)
+      const service = new UserService()
+      return service.upsertDisplayName(userId, args.displayName)
     },
     registerForSession: async (_: unknown, args: { occurrenceId: string }, context: AppContext) => {
       const userId = requireAuth(context)
