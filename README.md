@@ -8,6 +8,7 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - PostgreSQL via Prisma for core data
 - Redis for caching and BullMQ for background jobs
 - Twilio Verify for phone-based authentication
+- Development-only phone prefix bypass for Twilio Verify
 - Firebase Cloud Messaging for push notifications
 - Frontend polling (no websockets initially)
 

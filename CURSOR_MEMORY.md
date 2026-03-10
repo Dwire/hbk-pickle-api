@@ -13,3 +13,4 @@
 - Seed data and scheduler timing use shared UTC/Eastern utilities.
 - sessionsWeek subSignupStatus filtering now returns only ACTIVE sub signups for the current user.
 - Seed script now creates default league rules for the demo league.
+- Dev auth bypass: phone numbers starting with AUTH_DEV_BYPASS_PHONE_PREFIX skip Twilio Verify in development.

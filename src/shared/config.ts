@@ -3,6 +3,8 @@ import { z } from 'zod'
 
 dotenv.config()
 
+const devPhoneBypassPrefixDefault = '+1555999'
+
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(4000),
@@ -14,7 +16,8 @@ const envSchema = z.object({
   FIREBASE_PROJECT_ID: z.string().min(1),
   FIREBASE_CLIENT_EMAIL: z.string().min(1),
   FIREBASE_PRIVATE_KEY: z.string().min(1),
-  AUTH_JWT_SECRET: z.string().min(1)
+  AUTH_JWT_SECRET: z.string().min(1),
+  AUTH_DEV_BYPASS_PHONE_PREFIX: z.string().min(1).default(devPhoneBypassPrefixDefault)
 })
 
 const envResult = envSchema.safeParse(process.env)
@@ -43,6 +46,7 @@ export const config = {
     privateKey: envResult.data.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n')
   },
   auth: {
-    jwtSecret: envResult.data.AUTH_JWT_SECRET
+    jwtSecret: envResult.data.AUTH_JWT_SECRET,
+    devPhoneBypassPrefix: envResult.data.AUTH_DEV_BYPASS_PHONE_PREFIX
   }
 }
