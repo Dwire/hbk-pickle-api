@@ -16,4 +16,5 @@
 
 ## Data Flow
 
+- Seed data creates default league rules for the demo league.
 - Admin upserts rules with order per league.
