@@ -3,29 +3,15 @@ import type { SessionOccurrenceGetPayload } from '../../generated/prisma/models/
 import { prisma } from '../../shared/prisma.js'
 import { logger } from '../../shared/logger.js'
 import { registrationCloseHour, registrationOpenHour, sessionCapacityDefault } from '../../shared/constants.js'
+import {
+  easternTimeZone,
+  easternZonedTimeToUtc,
+  getEasternDateTimeParts,
+  getEasternWallClockTimestamp,
+  getEasternWeekRangeUtc,
+  shiftDateByDays
+} from '../../shared/time.js'
 
-const easternTimeZone = 'America/New_York'
-const localeEnUs = 'en-US'
-const weekdayFormatStyle = 'short'
-const hourCycle24 = 'h23'
-const literalPartType = 'literal'
-const yearPartType = 'year'
-const monthPartType = 'month'
-const dayPartType = 'day'
-const hourPartType = 'hour'
-const minutePartType = 'minute'
-const secondPartType = 'second'
-const weekdayLabelSun = 'Sun'
-const weekdayLabelMon = 'Mon'
-const weekdayLabelTue = 'Tue'
-const weekdayLabelWed = 'Wed'
-const weekdayLabelThu = 'Thu'
-const weekdayLabelFri = 'Fri'
-const weekdayLabelSat = 'Sat'
-const sundayIndex = 0
-const mondayIndex = 1
-const daysPerWeek = 7
-const millisecondsPerMinute = 60_000
 const liveOpenHour = 10
 const liveOpenMinute = 0
 const liveOpenSecond = 0
@@ -41,14 +27,6 @@ const logResolvedSubSignupWindow = 'Resolved sub signup window check'
 const logLoadedUserSubSignupStatuses = 'Loaded user sub signup statuses'
 const logFilteredUserSubSignupStatuses = 'Filtered user sub signup statuses to active'
 const logLoadedActiveSubSignupCounts = 'Loaded active sub signup counts'
-const weekStartHour = 0
-const weekStartMinute = 0
-const weekStartSecond = 0
-const weekStartMillisecond = 0
-const weekEndHour = 23
-const weekEndMinute = 59
-const weekEndSecond = 59
-const weekEndMillisecond = 999
 const subSignupStatusActive: SubSignupStatus = 'ACTIVE'
 const subSignupStatusSelected: SubSignupStatus = 'SELECTED'
 const subSignupStatusReplaced: SubSignupStatus = 'REPLACED'
@@ -59,31 +37,6 @@ const subSignupStatusCountsInitial: Record<SubSignupStatus, number> = {
   REPLACED: 0,
   CANCELED: 0
 }
-const weekdayIndexByLabel: Record<string, number> = {
-  [weekdayLabelSun]: sundayIndex,
-  [weekdayLabelMon]: mondayIndex,
-  [weekdayLabelTue]: 2,
-  [weekdayLabelWed]: 3,
-  [weekdayLabelThu]: 4,
-  [weekdayLabelFri]: 5,
-  [weekdayLabelSat]: 6
-}
-
-const easternDateTimeFormat = new Intl.DateTimeFormat(localeEnUs, {
-  timeZone: easternTimeZone,
-  year: 'numeric',
-  month: '2-digit',
-  day: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
-  second: '2-digit',
-  hourCycle: hourCycle24
-})
-
-const easternWeekdayFormat = new Intl.DateTimeFormat(localeEnUs, {
-  timeZone: easternTimeZone,
-  weekday: weekdayFormatStyle
-})
 
 export type SessionWindow = {
   registrationOpenAt: Date
@@ -152,139 +105,9 @@ type OccurrenceWithUserData = SessionOccurrenceGetPayload<{
   }
 }>
 
-type DateParts = {
-  year: number
-  month: number
-  day: number
-}
-
-type DateTimeParts = DateParts & {
-  hour: number
-  minute: number
-  second: number
-}
-
-type LocalDateTime = DateTimeParts & {
-  millisecond: number
-}
-
-const getEasternDateTimeParts = (date: Date): DateTimeParts => {
-  const parts = easternDateTimeFormat.formatToParts(date)
-  const lookup = new Map<string, string>()
-
-  for (const part of parts) {
-      if (part.type === literalPartType) {
-        continue
-      }
-
-      lookup.set(part.type, part.value)
-  }
-
-  const yearValue = Number(lookup.get(yearPartType))
-  const monthValue = Number(lookup.get(monthPartType))
-  const dayValue = Number(lookup.get(dayPartType))
-  const hourValue = Number(lookup.get(hourPartType))
-  const minuteValue = Number(lookup.get(minutePartType))
-  const secondValue = Number(lookup.get(secondPartType))
-
-  return {
-    year: yearValue,
-    month: monthValue,
-    day: dayValue,
-    hour: hourValue,
-    minute: minuteValue,
-    second: secondValue
-  }
-}
-
-const getStoredEasternDateTimeParts = (date: Date): DateTimeParts => ({
-  year: date.getUTCFullYear(),
-  month: date.getUTCMonth() + 1,
-  day: date.getUTCDate(),
-  hour: date.getUTCHours(),
-  minute: date.getUTCMinutes(),
-  second: date.getUTCSeconds()
-})
-
-const getUtcDateTimeParts = (date: Date): LocalDateTime => ({
-  year: date.getUTCFullYear(),
-  month: date.getUTCMonth() + 1,
-  day: date.getUTCDate(),
-  hour: date.getUTCHours(),
-  minute: date.getUTCMinutes(),
-  second: date.getUTCSeconds(),
-  millisecond: date.getUTCMilliseconds()
-})
-
-const getEasternWeekdayIndex = (date: Date): number => {
-  const label = easternWeekdayFormat.format(date)
-  return weekdayIndexByLabel[label] ?? sundayIndex
-}
-
-const shiftDateByDays = (dateParts: DateParts, offsetDays: number): DateParts => {
-  const shifted = new Date(Date.UTC(dateParts.year, dateParts.month - 1, dateParts.day + offsetDays))
-  return {
-    year: shifted.getUTCFullYear(),
-    month: shifted.getUTCMonth() + 1,
-    day: shifted.getUTCDate()
-  }
-}
-
-const getEasternOffsetMinutes = (date: Date): number => {
-  const parts = easternDateTimeFormat.formatToParts(date)
-  const lookup = new Map<string, string>()
-
-  for (const part of parts) {
-      if (part.type === literalPartType) {
-        continue
-      }
-
-      lookup.set(part.type, part.value)
-  }
-
-  const yearValue = Number(lookup.get(yearPartType))
-  const monthValue = Number(lookup.get(monthPartType))
-  const dayValue = Number(lookup.get(dayPartType))
-  const hourValue = Number(lookup.get(hourPartType))
-  const minuteValue = Number(lookup.get(minutePartType))
-  const secondValue = Number(lookup.get(secondPartType))
-
-  const utcTimestamp = Date.UTC(
-    yearValue,
-    monthValue - 1,
-    dayValue,
-    hourValue,
-    minuteValue,
-    secondValue
-  )
-
-  return (utcTimestamp - date.getTime()) / millisecondsPerMinute
-}
-
-const easternZonedTimeToUtc = (local: LocalDateTime): Date => {
-  const utcGuess = new Date(
-    Date.UTC(local.year, local.month - 1, local.day, local.hour, local.minute, local.second, local.millisecond)
-  )
-  const offsetMinutes = getEasternOffsetMinutes(utcGuess)
-  return new Date(utcGuess.getTime() - offsetMinutes * millisecondsPerMinute)
-}
-
-const toEasternWallClockTimestamp = (parts: LocalDateTime): number =>
-  Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second, parts.millisecond)
-
-const getEasternWallClockTimestamp = (date: Date): number => {
-  const easternParts = getEasternDateTimeParts(date)
-  return toEasternWallClockTimestamp({ ...easternParts, millisecond: date.getUTCMilliseconds() })
-}
-
-const getStoredEasternWallClockTimestamp = (date: Date): number => {
-  const utcParts = getUtcDateTimeParts(date)
-  return toEasternWallClockTimestamp(utcParts)
-}
-
 const calculateLiveOpensAt = (startsAt: Date): Date => {
-  const startsAtParts = getStoredEasternDateTimeParts(startsAt)
-  const startDateParts: DateParts = {
+  const startsAtParts = getEasternDateTimeParts(startsAt)
+  const startDateParts = {
     year: startsAtParts.year,
     month: startsAtParts.month,
     day: startsAtParts.day
@@ -301,7 +124,7 @@ const calculateLiveOpensAt = (startsAt: Date): Date => {
 }
 
 const calculateSubSignupCloseAt = (endsAt: Date): Date => {
-  const endsAtParts = getStoredEasternDateTimeParts(endsAt)
+  const endsAtParts = getEasternDateTimeParts(endsAt)
   return easternZonedTimeToUtc({
     year: endsAtParts.year,
     month: endsAtParts.month,
@@ -315,8 +138,8 @@ const calculateSubSignupCloseAt = (endsAt: Date): Date => {
 
 const getSessionDisplayState = (now: Date, endsAt: Date, liveOpensAt: Date): SessionDisplayState => {
   const nowEasternTimestamp = getEasternWallClockTimestamp(now)
-  const endsAtEasternTimestamp = getStoredEasternWallClockTimestamp(endsAt)
-  const liveOpensAtEasternTimestamp = getStoredEasternWallClockTimestamp(liveOpensAt)
+  const endsAtEasternTimestamp = getEasternWallClockTimestamp(endsAt)
+  const liveOpensAtEasternTimestamp = getEasternWallClockTimestamp(liveOpensAt)
   logger.info(
     {
       now,
@@ -340,60 +163,6 @@ const getSessionDisplayState = (now: Date, endsAt: Date, liveOpensAt: Date): Ses
   return 'UPCOMING'
 }
 
-export const getEasternDateParts = (date: Date): DateParts => {
-  const parts = getEasternDateTimeParts(date)
-  return {
-    year: parts.year,
-    month: parts.month,
-    day: parts.day
-  }
-}
-
-export const getEasternDayRangeUtc = (date: Date): { start: Date; end: Date } => {
-  const dateParts = getEasternDateParts(date)
-  const start = easternZonedTimeToUtc({
-    ...dateParts,
-    hour: weekStartHour,
-    minute: weekStartMinute,
-    second: weekStartSecond,
-    millisecond: weekStartMillisecond
-  })
-  const end = easternZonedTimeToUtc({
-    ...dateParts,
-    hour: weekEndHour,
-    minute: weekEndMinute,
-    second: weekEndSecond,
-    millisecond: weekEndMillisecond
-  })
-
-  return { start, end }
-}
-
-const getEasternWeekRange = (now: Date): { start: Date; end: Date } => {
-  const nowParts = getEasternDateTimeParts(now)
-  const nowDateParts: DateParts = { year: nowParts.year, month: nowParts.month, day: nowParts.day }
-  const weekdayIndex = getEasternWeekdayIndex(now)
-  const daysSinceWeekStart = (weekdayIndex - mondayIndex + daysPerWeek) % daysPerWeek
-  const startDateParts = shiftDateByDays(nowDateParts, -daysSinceWeekStart)
-  const endDateParts = shiftDateByDays(startDateParts, daysPerWeek - 1)
-
-  const start = easternZonedTimeToUtc({
-    ...startDateParts,
-    hour: weekStartHour,
-    minute: weekStartMinute,
-    second: weekStartSecond,
-    millisecond: weekStartMillisecond
-  })
-  const end = easternZonedTimeToUtc({
-    ...endDateParts,
-    hour: weekEndHour,
-    minute: weekEndMinute,
-    second: weekEndSecond,
-    millisecond: weekEndMillisecond
-  })
-
-  return { start, end }
-}
 
 /**
  * SessionService
@@ -403,8 +172,8 @@ const getEasternWeekRange = (now: Date): { start: Date; end: Date } => {
  */
 export class SessionService {
   public calculateRegistrationWindow(startsAt: Date): SessionWindow {
-    const startsAtParts = getStoredEasternDateTimeParts(startsAt)
-    const startDateParts: DateParts = {
+    const startsAtParts = getEasternDateTimeParts(startsAt)
+    const startDateParts = {
       year: startsAtParts.year,
       month: startsAtParts.month,
       day: startsAtParts.day
@@ -468,7 +237,7 @@ export class SessionService {
    * - Used by the sessionsWeek query.
    */
   public async listSessionsWeek(userId?: string | null): Promise<SessionOccurrenceSummary[]> {
-    const { start, end } = getEasternWeekRange(new Date())
+    const { start, end } = getEasternWeekRangeUtc(new Date())
     logger.info({ start, end, timeZone: easternTimeZone }, 'Listing sessions for eastern week')
     return this.listSessions(start, end, userId)
   }

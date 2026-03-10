@@ -5,8 +5,10 @@
 - Run commands through mise (e.g., `mise exec -- just dev`) so pnpm resolves from mise.toml.
 - Registration/sub eligibility enforced in services; roster detail comes from SessionService.getOccurrenceDetail().
 - Session occurrence summary/detail now include assignment flags (isUserAssignedToSession) derived from slot assignments.
-- Session summaries include displayState and liveOpensAt derived in Eastern time (live opens 10am ET day before).
-- Display state comparisons use Eastern wall-clock timestamps so sessions only become PAST after their listed end time.
-- Registration window opens 10am ET day before and closes at 7pm ET day before, with info logs in `isWithinRegistrationWindow()`.
-- Sub signup window remains open until session end using `isWithinSubSignupWindow(now, occurrence.endsAt)`.
+- Session summaries include displayState and liveOpensAt derived via shared UTC/Eastern utilities (live opens 10am ET day before).
+- Display state comparisons use Eastern wall-clock projections of UTC instants so sessions only become PAST after their listed end time.
+- Registration window opens 10am ET day before and closes at 7pm ET day before via shared time utils.
+- Sub signup window remains open until session end using `isWithinSubSignupWindow(now, occurrence.endsAt)` with UTC instants.
+- GraphQL DateTime enforces UTC-only (Z/+00:00) with UTC serialization.
+- Seed data and scheduler timing use shared UTC/Eastern utilities.
 - sessionsWeek subSignupStatus filtering now returns only ACTIVE sub signups for the current user.

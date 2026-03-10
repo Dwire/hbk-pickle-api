@@ -1,6 +1,7 @@
 import type { Weekday } from '../generated/prisma/client.js'
 import { logger } from '../shared/logger.js'
 import { prisma } from '../shared/prisma.js'
+import { easternDayMinutesToUtc, easternZonedTimeToUtc, getEasternWeekRangeUtc, shiftDateByDays } from '../shared/time.js'
 
 const seedLeagueName = 'Seed League'
 const seedLeagueTimeZone = 'America/New_York'
@@ -73,19 +74,9 @@ const ensureSeedCounts = () => {
   }
 }
 
-const addDays = (date: Date, daysToAdd: number) => {
-  const next = new Date(date)
-  next.setUTCDate(next.getUTCDate() + daysToAdd)
-  return next
-}
-
 const getCurrentWeekStartDate = () => {
-  const today = new Date()
-  const baseDate = new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), today.getUTCDate()))
-  const currentWeekday = baseDate.getUTCDay()
-  const mondayIndex = weekdayIndexMap.MONDAY
-  const daysSinceMonday = (currentWeekday - mondayIndex + daysInWeek) % daysInWeek
-  return addDays(baseDate, -daysSinceMonday)
+  const { start } = getEasternWeekRangeUtc(new Date())
+  return start
 }
 
 const buildUserData = () =>
@@ -112,11 +103,12 @@ const buildSessionTemplates = (): SessionTemplateConfig[] =>
 const buildOccurrenceDates = (baseWeekStart: Date, weekday: Weekday, startMinutes: number, endMinutes: number) =>
   Array.from({ length: seedWeeks }, (_, weekIndex) => {
     const dayOffset = weekdayIndexMap[weekday] - weekdayIndexMap.MONDAY
-    const dayStart = addDays(baseWeekStart, weekIndex * daysInWeek + dayOffset)
-    const startsAt = new Date(dayStart)
-    startsAt.setUTCMinutes(startMinutes)
-    const endsAt = new Date(dayStart)
-    endsAt.setUTCMinutes(endMinutes)
+    const dayStart = shiftDateByDays(
+      { year: baseWeekStart.getUTCFullYear(), month: baseWeekStart.getUTCMonth() + 1, day: baseWeekStart.getUTCDate() },
+      weekIndex * daysInWeek + dayOffset
+    )
+    const startsAt = easternDayMinutesToUtc(dayStart, startMinutes)
+    const endsAt = easternDayMinutesToUtc(dayStart, endMinutes)
     return { startsAt, endsAt }
   })
 
@@ -176,13 +168,31 @@ const seedLeague = async () => {
   await clearSeedData()
 
   const baseWeekStart = getCurrentWeekStartDate()
-  const leagueEndDate = addDays(baseWeekStart, daysInWeek * seedWeeks)
+  const baseWeekStartParts = {
+    year: baseWeekStart.getUTCFullYear(),
+    month: baseWeekStart.getUTCMonth() + 1,
+    day: baseWeekStart.getUTCDate()
+  }
+  const leagueEndDateParts = shiftDateByDays(baseWeekStartParts, daysInWeek * seedWeeks)
+  const leagueEndDate = easternZonedTimeToUtc({
+    ...leagueEndDateParts,
+    hour: 0,
+    minute: 0,
+    second: 0,
+    millisecond: 0
+  })
 
   const league = await prisma.league.create({
     data: {
       name: seedLeagueName,
       timeZone: seedLeagueTimeZone,
-      startDate: baseWeekStart,
+      startDate: easternZonedTimeToUtc({
+        ...baseWeekStartParts,
+        hour: 0,
+        minute: 0,
+        second: 0,
+        millisecond: 0
+      }),
       endDate: leagueEndDate,
       isActive: true
     }

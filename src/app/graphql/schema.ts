@@ -1,5 +1,7 @@
 import { makeExecutableSchema } from '@graphql-tools/schema'
 import { GraphQLDateTime } from 'graphql-scalars'
+import { Kind } from 'graphql'
+import type { GraphQLScalarType, ValueNode } from 'graphql'
 
 import { AuthService } from '../../features/auth/authService.js'
 import { RegistrationService } from '../../features/registrations/registrationService.js'
@@ -9,6 +11,55 @@ import { SubSignupService } from '../../features/subs/subSignupService.js'
 import { Weekday } from '../../generated/prisma/client.js'
 import type { AppContext } from '../context.js'
 import { requireAuth } from '../auth.js'
+
+const utcDateTimeErrorInvalid = 'DateTime must be a UTC ISO-8601 value with a Z or +00:00 offset'
+
+const normalizeUtcIsoString = (value: string): string => {
+  const trimmed = value.trim()
+  const utcPattern = /Z$|\+00:00$/
+  if (!utcPattern.test(trimmed)) {
+    throw new Error(utcDateTimeErrorInvalid)
+  }
+
+  return trimmed
+}
+
+const coerceUtcDateTime = (value: unknown): Date => {
+  if (value instanceof Date && !Number.isNaN(value.getTime())) {
+    return value
+  }
+
+  if (typeof value !== 'string') {
+    throw new Error(utcDateTimeErrorInvalid)
+  }
+
+  const normalized = normalizeUtcIsoString(value)
+  const parsed = new Date(normalized)
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error(utcDateTimeErrorInvalid)
+  }
+
+  return parsed
+}
+
+const utcDateTimeScalar: GraphQLScalarType = GraphQLDateTime as GraphQLScalarType
+
+utcDateTimeScalar.serialize = (value: unknown): string => {
+  const parsed = coerceUtcDateTime(value)
+  return parsed.toISOString()
+}
+
+utcDateTimeScalar.parseValue = (value: unknown): Date => {
+  return coerceUtcDateTime(value)
+}
+
+utcDateTimeScalar.parseLiteral = (ast: ValueNode): Date => {
+  if (ast.kind !== Kind.STRING) {
+    throw new Error(utcDateTimeErrorInvalid)
+  }
+
+  return coerceUtcDateTime(ast.value)
+}
 
 const typeDefs = `#graphql
   scalar DateTime
@@ -158,7 +209,7 @@ const typeDefs = `#graphql
 `
 
 const resolvers = {
-  DateTime: GraphQLDateTime,
+  DateTime: utcDateTimeScalar,
   Query: {
     me: (_: unknown, __: unknown, context: AppContext) => {
       return context.request.userId ? context.prisma.user.findUnique({ where: { id: context.request.userId } }) : null

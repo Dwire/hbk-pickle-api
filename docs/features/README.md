@@ -7,4 +7,5 @@
 - rules.md: League rules content
 - notifications.md: Push notifications delivery
 - seed-data.md: Local seed data generation
+- utc-time.md: UTC-only API contract and Eastern business-rule conversions
 - scheduler: registrationScheduler.ts and registrationTick.ts handle queued reminders
