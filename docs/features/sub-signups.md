@@ -2,7 +2,7 @@
 
 ## Purpose
 
-- Allow players to offer as substitutes for weekly occurrences outside their assigned slot.
+- Allow players to offer as substitutes for weekly occurrences, including those assigned to the session.
 - Keep sub signup availability open until the session occurrence ends (Eastern rules applied to UTC instants).
 
 ## Core API
@@ -19,4 +19,5 @@
 
 - Upsert sub signup record per occurrence with ACTIVE or CANCELED.
 - Enforce sub signup window using SessionService.isWithinSubSignupWindow(now, occurrence.endsAt).
+- Allow sub signups regardless of assignment; enforce same-day attendance and same-day sub constraints.
 - Session summaries count only ACTIVE sub signups; canceled/selected/replaced do not contribute to subCount.

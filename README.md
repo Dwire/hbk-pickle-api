@@ -16,7 +16,7 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - Phone signup/login and profile basics
 - Auth requests log Twilio Verify send/check outcomes for debugging
 - Auth context derives user identity from bearer JWTs for resolvers
-- Weekly (Eastern) session occurrences listing with assignment-aware registration/sub signup rules and user status summaries derived from UTC instants
+- Weekly (Eastern) session occurrences listing with assignment-aware registration rules, assignment-agnostic sub signup rules, and user status summaries derived from UTC instants
 - Session display state (PAST/LIVE/UPCOMING) derived server-side using Eastern wall-clock projections of UTC instants; live window opens 10am ET day before
 - Registration windows open 10am ET day before and close at 7pm ET day before; sub signups remain open until the session ends (Eastern rules applied to UTC instants)
 - sessionsWeek sub signup status returns only ACTIVE sub signups for the current user
