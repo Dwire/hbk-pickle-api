@@ -106,6 +106,20 @@ const typeDefs = `#graphql
     role: UserRole!
   }
 
+  type ProfileStatsLeague {
+    id: ID!
+    name: String!
+  }
+
+  type ProfileStats {
+    currentLeague: ProfileStatsLeague
+    leaguesParticipated: [ProfileStatsLeague!]!
+    subSignupCount: Int!
+    subSelectedCount: Int!
+    attendanceCount: Int!
+    missedCount: Int!
+  }
+
   type League {
     id: ID!
     name: String!
@@ -190,6 +204,7 @@ const typeDefs = `#graphql
     rules: [LeagueRule!]!
     sessionsWeek: [Session!]!
     sessionOccurrenceDetail(occurrenceId: ID!): SessionOccurrenceDetail!
+    profileStats: ProfileStats!
   }
 
   type Mutation {
@@ -230,6 +245,11 @@ const resolvers = {
     sessionOccurrenceDetail: async (_: unknown, args: { occurrenceId: string }, context: AppContext) => {
       const sessionService = new SessionService()
       return sessionService.getOccurrenceDetail(args.occurrenceId, context.request.userId)
+    },
+    profileStats: async (_: unknown, __: unknown, context: AppContext) => {
+      const userId = requireAuth(context)
+      const userService = new UserService()
+      return userService.getProfileStats(userId)
     }
   },
   Mutation: {
