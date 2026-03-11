@@ -5,6 +5,7 @@
 - sessions.md: Session listing and admin session creation
 - registrations.md: Attendance registration
 - sub-signups.md: Sub signup logic
+- profile-stats.md: Profile stats aggregation for the profile page
 - rules.md: League rules content
 - notifications.md: Push notifications delivery
 - seed-data.md: Local seed data generation
