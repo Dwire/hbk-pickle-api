@@ -25,8 +25,8 @@
 - Assignments gate registration eligibility, while sub signups are assignment-agnostic.
 - Session display state (PAST/LIVE/UPCOMING) compares Eastern wall-clock projections of UTC instants so sessions only go PAST after the listed end time.
 - Session templates are tied to the default league and referenced by assignments.
-- sessionsWeek sub signup status returns only ACTIVE records for the current user (canceled/selected/replaced are excluded).
-- Session occurrence summaries report subCount using ACTIVE sub signups only (canceled/selected/replaced excluded).
+- sessionsWeek sub signup status returns ACTIVE or SELECTED records for the current user (canceled/replaced are excluded).
+- Session occurrence summaries report subCount using ACTIVE + SELECTED sub signups (canceled/replaced excluded).
 - Session occurrence summaries report attendingCount using ATTENDING registrations only (canceled/declined excluded).
-- Session occurrence summaries include `registeredUsers` and `subUsers` participant lists (`id`, `displayName`, `profileImageUrl`) for ATTENDING and non-CANCELED sub signup states respectively.
+- Session occurrence summaries include `registeredUsers` and `subUsers` participant lists (`id`, `displayName`, `profileImageUrl`) for ATTENDING and ACTIVE/SELECTED sub signup states respectively.
 - Sub participant lists and session detail `subs` are ordered by sub queue signup time (`signedUpAt` ascending).
