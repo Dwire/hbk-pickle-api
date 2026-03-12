@@ -10,4 +10,5 @@
 - notifications.md: Push notifications delivery
 - seed-data.md: Local seed data generation
 - utc-time.md: UTC-only API contract and Eastern business-rule conversions
+- dev-debugging.md: Local backend debugging workflow with Node inspector
 - scheduler: registrationScheduler.ts and registrationTick.ts handle queued reminders

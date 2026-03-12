@@ -30,6 +30,7 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - Admin portal APIs for league/session management
 - Rules page content management
 - Notification scheduling and delivery
+- Debuggable backend runtime via `just run-debug` / `just run-debug-brk` (Node inspector + auto-reload)
 - Local seed data generation for three 3-week leagues (2 past inactive + 1 current active), 3 sessions per day on Monday/Wednesday/Thursday/Friday, 5-slot assignments per session, and randomized historical registrations/sub signups (preserves protected user)
 
 ## Folder Structure
@@ -45,7 +46,7 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 ## Key Files
 
 - README.md: Project overview (this file)
-- justfile: Developer commands
+- justfile: Developer commands (install, run, debug, build, workers)
 - prisma/schema.prisma: Database schema (recurring sessions + occurrences)
 - src/app/server.ts: App entry
 - src/app/graphql/schema.ts: GraphQL schema
@@ -56,7 +57,7 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 
 ## Documentation
 
-- docs/features: One doc per feature module with responsibilities and data flow (see utc-time.md for UTC contract)
+- docs/features: One doc per feature module with responsibilities and data flow (see utc-time.md for UTC contract and dev-debugging.md for local debugger workflow)
 
 ## Local Development (Postman)
 
@@ -65,6 +66,14 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - Create the local database.
 - Sync schema without migrations (no shadow DB permissions).
 - Start the API.
+
+### Local Debugging
+
+- `just run-debug`: Starts the API with auto-reload and Node inspector on `127.0.0.1:9229`.
+- `just run-debug 9230 4001`: Starts a second debug instance on inspector `9230` and app port `4001`.
+- `just run-debug-brk`: Starts in inspector break mode and pauses immediately so your IDE can attach before app code runs.
+- VS Code attach profiles are in `.vscode/launch.json` (`Attach API (just run-debug)` and `Attach API (custom port)`).
+- Running two debug processes at once requires different inspector and app ports per process.
 
 ### Postman GraphQL Endpoint
 

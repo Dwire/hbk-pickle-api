@@ -26,6 +26,23 @@ format:
 dev:
 	pnpm dev
 
+# Start the dev server (alias for `just dev`).
+# Parameters: none.
+
+run: dev
+
+# Start the dev server with Node inspector enabled for IDE attach.
+# Parameters: `debug_port` (default: 9229), `app_port` (default: 4000).
+
+run-debug debug_port="9229" app_port="4000":
+	PORT={{app_port}} pnpm exec nodemon --watch src --ext ts --exec "pnpm exec tsx --inspect=127.0.0.1:{{debug_port}} src/app/server.ts"
+
+# Start the dev server with Node inspector break mode (pauses on startup).
+# Parameters: `debug_port` (default: 9229), `app_port` (default: 4000).
+
+run-debug-brk debug_port="9229" app_port="4000":
+	PORT={{app_port}} pnpm exec nodemon --watch src --ext ts --exec "pnpm exec tsx --inspect-brk=127.0.0.1:{{debug_port}} src/app/server.ts"
+
 # Build the production bundle.
 
 build:
