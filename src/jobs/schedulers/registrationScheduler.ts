@@ -149,7 +149,8 @@ export class RegistrationScheduler {
             type: 'exponential',
             delay: subSelectionJobBackoffDelayMs
           },
-          removeOnComplete: true
+          removeOnComplete: true,
+          removeOnFail: true
         }
       )
 

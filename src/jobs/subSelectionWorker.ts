@@ -1,6 +1,7 @@
 import type { Job } from 'bullmq'
 import { Worker } from 'bullmq'
 
+import type { NotificationKind } from '../generated/prisma/client.js'
 import { SessionService } from '../features/sessions/sessionService.js'
 import { SubSelectionService } from '../features/subs/subSelectionService.js'
 import { notificationQueue, subSelectionQueue } from '../integrations/bull/queue.js'
@@ -17,90 +18,76 @@ type NotificationQueuePayload = {
   deviceTokens: string[]
 }
 
-const subSelectedNotificationTitle = 'You made the sub list'
-const subSelectedNotificationBody = 'You have been selected as a sub for this session.'
-const subSelectedNotificationKind = 'SUB_SELECTED'
-const subStatusChangedNotificationTitle = 'Sub status updated'
-const subStatusChangedNotificationBody = 'You are no longer selected as a sub for this session.'
-const subStatusChangedNotificationKind = 'SUB_STATUS_CHANGED'
-const pushChannel = 'PUSH'
+const subSelectedNotificationKind: NotificationKind = 'SUB_SELECTED'
+const subStatusChangedNotificationKind: NotificationKind = 'SUB_STATUS_CHANGED'
 const pendingStatus = 'PENDING'
 const subSelectedJobName = 'sub-selected'
 const subStatusChangedJobName = 'sub-status-changed'
+const subNotificationJobIdPrefix = 'sub-notify'
+
+const pendingSubSelectionKinds: NotificationKind[] = [subSelectedNotificationKind, subStatusChangedNotificationKind]
 
 const subSelectionService = new SubSelectionService()
 const sessionService = new SessionService()
 const workerName = subSelectionQueue.name
 
-const queueSubSelectedNotifications = async (occurrenceId: string, subSignupIds: string[]): Promise<void> => {
-  if (subSignupIds.length === 0) {
-    return
-  }
-
-  const selectedSignups = await prisma.subSignup.findMany({
-    where: { id: { in: subSignupIds } },
-    include: { user: { include: { devices: true } } }
+const queuePendingSubSelectionNotifications = async (
+  occurrenceId: string
+): Promise<{ queuedCount: number; pendingCount: number; skippedNoDeviceCount: number }> => {
+  const pendingNotifications = await prisma.notification.findMany({
+    where: {
+      occurrenceId,
+      status: pendingStatus,
+      kind: { in: pendingSubSelectionKinds }
+    }
   })
 
-  for (const signup of selectedSignups) {
-    const notification = await prisma.notification.create({
-      data: {
-        userId: signup.userId,
-        occurrenceId,
-        title: subSelectedNotificationTitle,
-        body: subSelectedNotificationBody,
-        channel: pushChannel,
-        status: pendingStatus,
-        kind: subSelectedNotificationKind,
-        payload: { subSignupId: signup.id }
-      }
-    })
+  const userIds = [...new Set(pendingNotifications.map((notification) => notification.userId))]
+  const devices = await prisma.userDevice.findMany({
+    where: {
+      userId: { in: userIds }
+    }
+  })
+  const deviceTokensByUserId = new Map<string, string[]>()
+  for (const device of devices) {
+    const existingTokens = deviceTokensByUserId.get(device.userId) ?? []
+    existingTokens.push(device.token)
+    deviceTokensByUserId.set(device.userId, existingTokens)
+  }
 
-    const deviceTokens = signup.user.devices.map((device) => device.token)
+  let queuedCount = 0
+  let skippedNoDeviceCount = 0
+
+  for (const notification of pendingNotifications) {
+    const deviceTokens = deviceTokensByUserId.get(notification.userId) ?? []
     if (deviceTokens.length === 0) {
+      skippedNoDeviceCount += 1
       continue
     }
 
-    await notificationQueue.add(subSelectedJobName, {
-      notificationId: notification.id,
-      deviceTokens
-    } as NotificationQueuePayload)
-  }
-}
+    const queueJobName =
+      notification.kind === subSelectedNotificationKind ? subSelectedJobName : subStatusChangedJobName
 
-const queueSubStatusChangedNotifications = async (occurrenceId: string, subSignupIds: string[]): Promise<void> => {
-  if (subSignupIds.length === 0) {
-    return
-  }
-
-  const replacedSignups = await prisma.subSignup.findMany({
-    where: { id: { in: subSignupIds } },
-    include: { user: { include: { devices: true } } }
-  })
-
-  for (const signup of replacedSignups) {
-    const notification = await prisma.notification.create({
-      data: {
-        userId: signup.userId,
-        occurrenceId,
-        title: subStatusChangedNotificationTitle,
-        body: subStatusChangedNotificationBody,
-        channel: pushChannel,
-        status: pendingStatus,
-        kind: subStatusChangedNotificationKind,
-        payload: { subSignupId: signup.id }
+    await notificationQueue.add(
+      queueJobName,
+      {
+        notificationId: notification.id,
+        deviceTokens
+      } as NotificationQueuePayload,
+      {
+        jobId: `${subNotificationJobIdPrefix}:${notification.id}`,
+        removeOnComplete: true,
+        removeOnFail: true
       }
-    })
+    )
 
-    const deviceTokens = signup.user.devices.map((device) => device.token)
-    if (deviceTokens.length === 0) {
-      continue
-    }
+    queuedCount += 1
+  }
 
-    await notificationQueue.add(subStatusChangedJobName, {
-      notificationId: notification.id,
-      deviceTokens
-    } as NotificationQueuePayload)
+  return {
+    queuedCount,
+    pendingCount: pendingNotifications.length,
+    skippedNoDeviceCount
   }
 }
 
@@ -131,21 +118,17 @@ export const subSelectionWorker = new Worker<SubSelectionJobPayload>(
     }
 
     const result = await subSelectionService.runSelection(occurrenceId)
-
-    if (result.newlySelectedIds.length === 0 && result.replacedIds.length === 0) {
-      logger.info({ occurrenceId, jobId: job.id }, 'Sub selection job made no notification changes')
-      return
-    }
-
-    await queueSubSelectedNotifications(occurrenceId, result.newlySelectedIds)
-    await queueSubStatusChangedNotifications(occurrenceId, result.replacedIds)
+    const queuedNotificationResult = await queuePendingSubSelectionNotifications(occurrenceId)
 
     logger.info(
       {
         occurrenceId,
         jobId: job.id,
         newlySelectedCount: result.newlySelectedIds.length,
-        replacedCount: result.replacedIds.length
+        replacedCount: result.replacedIds.length,
+        pendingNotificationCount: queuedNotificationResult.pendingCount,
+        queuedNotificationCount: queuedNotificationResult.queuedCount,
+        skippedNoDeviceNotificationCount: queuedNotificationResult.skippedNoDeviceCount
       },
       'Sub selection job completed'
     )
