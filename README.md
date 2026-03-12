@@ -28,7 +28,7 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - Admin portal APIs for league/session management
 - Rules page content management
 - Notification scheduling and delivery
-- Local seed data generation for leagues, rules, users, sessions, occurrences, and assignments (preserves protected user; includes 3 Thursday sessions and validates current-week Thursday occurrences)
+- Local seed data generation for three 3-week leagues (2 past inactive + 1 current active), 3 sessions per day on Monday/Wednesday/Thursday/Friday, 5-slot assignments per session, and randomized historical registrations/sub signups (preserves protected user)
 
 ## Folder Structure
 
