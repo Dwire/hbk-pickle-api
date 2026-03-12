@@ -36,6 +36,16 @@ build:
 scheduler-tick:
 	pnpm scheduler:tick
 
+# Run BullMQ notifications worker process.
+
+worker-notifications:
+	pnpm worker:notifications
+
+# Run BullMQ sub-selection worker process.
+
+worker-sub-selection:
+	pnpm worker:sub-selection
+
 # Run Prisma migrations in dev mode.
 
 migrate-dev:

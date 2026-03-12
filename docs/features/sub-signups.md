@@ -20,4 +20,6 @@
 - Upsert sub signup record per occurrence with ACTIVE or CANCELED.
 - Enforce sub signup window using SessionService.isWithinSubSignupWindow(now, occurrence.endsAt).
 - Allow sub signups regardless of assignment; enforce same-day attendance and same-day sub constraints.
+- After registration closes, scheduler ticks enqueue sub-selection jobs through session end so ACTIVE signups can move into SELECTED as the list changes.
+- Sub-selection worker performs the selection calculation and sends selection state-change notifications.
 - Session summaries count only ACTIVE sub signups; canceled/selected/replaced do not contribute to subCount.

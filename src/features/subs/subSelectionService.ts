@@ -2,7 +2,7 @@ import { prisma } from '../../shared/prisma.js'
 import { logger } from '../../shared/logger.js'
 
 type SelectionResult = {
-  selectedIds: string[]
+  newlySelectedIds: string[]
   replacedIds: string[]
   stillActiveIds: string[]
 }
@@ -34,11 +34,13 @@ export class SubSelectionService {
     const overflowIds = overflow.map((signup) => signup.id)
 
     const previouslySelectedIds = occurrence.subSignups.filter((signup) => signup.status === 'SELECTED').map((signup) => signup.id)
+    const previouslySelectedIdSet = new Set(previouslySelectedIds)
     const replacedIds = previouslySelectedIds.filter((id) => !selectedIds.includes(id))
+    const newlySelectedIds = selectedIds.filter((id) => !previouslySelectedIdSet.has(id))
 
-    if (selectedIds.length > 0) {
+    if (newlySelectedIds.length > 0) {
       await prisma.subSignup.updateMany({
-        where: { id: { in: selectedIds } },
+        where: { id: { in: newlySelectedIds } },
         data: {
           status: 'SELECTED',
           selectedAt: new Date()
@@ -76,10 +78,19 @@ export class SubSelectionService {
       await prisma.$transaction(rankUpdates)
     }
 
-    logger.info({ occurrenceId, openSlots, selectedCount: selectedIds.length }, 'Sub selection completed')
+    logger.info(
+      {
+        occurrenceId,
+        openSlots,
+        selectedCount: selectedIds.length,
+        newlySelectedCount: newlySelectedIds.length,
+        replacedCount: replacedIds.length
+      },
+      'Sub selection completed'
+    )
 
     return {
-      selectedIds,
+      newlySelectedIds,
       replacedIds,
       stillActiveIds: overflowIds
     }
