@@ -25,14 +25,15 @@ const logLoadedUserSessionStatuses = 'Loaded user registration/sub statuses'
 const logResolvedRegistrationWindow = 'Resolved registration window check'
 const logResolvedSubSignupWindow = 'Resolved sub signup window check'
 const logLoadedUserSubSignupStatuses = 'Loaded user sub signup statuses'
-const logFilteredUserSubSignupStatuses = 'Filtered user sub signup statuses to active'
-const logLoadedActiveSubSignupCounts = 'Loaded active sub signup counts'
+const logFilteredUserSubSignupStatuses = 'Filtered user sub signup statuses to summary statuses'
+const logLoadedSummarySubSignupCounts = 'Loaded summary sub signup counts'
 const logLoadedAttendingRegistrationCounts = 'Loaded attending registration counts'
 const registrationStatusAttending: RegistrationStatus = 'ATTENDING'
 const subSignupStatusActive: SubSignupStatus = 'ACTIVE'
 const subSignupStatusSelected: SubSignupStatus = 'SELECTED'
 const subSignupStatusReplaced: SubSignupStatus = 'REPLACED'
 const subSignupStatusCanceled: SubSignupStatus = 'CANCELED'
+const subSignupSummaryStatuses: SubSignupStatus[] = [subSignupStatusActive, subSignupStatusSelected]
 const subSignupStatusCountsInitial: Record<SubSignupStatus, number> = {
   ACTIVE: 0,
   SELECTED: 0,
@@ -282,12 +283,12 @@ export class SessionService {
     })
 
     const attendingCountByOccurrenceId = new Map<string, number>()
-    const activeSubCountByOccurrenceId = new Map<string, number>()
+    const summarySubCountByOccurrenceId = new Map<string, number>()
     const registeredUsersByOccurrenceId = new Map<string, SessionParticipantSummary[]>()
     const subUsersByOccurrenceId = new Map<string, SessionParticipantSummary[]>()
     if (occurrences.length > 0) {
       const occurrenceIds = occurrences.map((occurrence) => occurrence.id)
-      const [attendingCounts, activeSubCounts, attendingRegistrations, nonCanceledSubSignups] = await Promise.all([
+      const [attendingCounts, summarySubCounts, attendingRegistrations, summarySubSignups] = await Promise.all([
         prisma.sessionRegistration.groupBy({
           by: ['occurrenceId'],
           where: {
@@ -300,7 +301,7 @@ export class SessionService {
           by: ['occurrenceId'],
           where: {
             occurrenceId: { in: occurrenceIds },
-            status: subSignupStatusActive
+            status: { in: subSignupSummaryStatuses }
           },
           _count: { _all: true }
         }),
@@ -318,7 +319,7 @@ export class SessionService {
         prisma.subSignup.findMany({
           where: {
             occurrenceId: { in: occurrenceIds },
-            status: { not: subSignupStatusCanceled }
+            status: { in: subSignupSummaryStatuses }
           },
           select: {
             occurrenceId: true,
@@ -336,12 +337,12 @@ export class SessionService {
         logLoadedAttendingRegistrationCounts
       )
 
-      activeSubCounts.forEach((countEntry) => {
-        activeSubCountByOccurrenceId.set(countEntry.occurrenceId, countEntry._count._all)
+      summarySubCounts.forEach((countEntry) => {
+        summarySubCountByOccurrenceId.set(countEntry.occurrenceId, countEntry._count._all)
       })
       logger.info(
-        { occurrenceCount: occurrences.length, activeSubSignupCounts: activeSubCounts.length },
-        logLoadedActiveSubSignupCounts
+        { occurrenceCount: occurrences.length, summarySubSignupCounts: summarySubCounts.length, subSignupSummaryStatuses },
+        logLoadedSummarySubSignupCounts
       )
 
       attendingRegistrations.forEach((registration) => {
@@ -352,7 +353,7 @@ export class SessionService {
           registration.user.displayName
         )
       })
-      nonCanceledSubSignups.forEach((subSignup) => {
+      summarySubSignups.forEach((subSignup) => {
         appendParticipantByOccurrence(
           subUsersByOccurrenceId,
           subSignup.occurrenceId,
@@ -385,7 +386,7 @@ export class SessionService {
             where: {
               userId: userId as string,
               occurrenceId: { in: occurrenceIds },
-              status: subSignupStatusActive
+              status: { in: subSignupSummaryStatuses }
             },
             select: { occurrenceId: true, status: true }
           })
@@ -414,8 +415,8 @@ export class SessionService {
         logger.info(
           {
             userId,
-            allowedStatuses: [subSignupStatusActive],
-            filteredOutStatuses: [subSignupStatusCanceled, subSignupStatusSelected, subSignupStatusReplaced]
+            allowedStatuses: subSignupSummaryStatuses,
+            filteredOutStatuses: [subSignupStatusCanceled, subSignupStatusReplaced]
           },
           logFilteredUserSubSignupStatuses
         )
@@ -437,28 +438,28 @@ export class SessionService {
         const subSignupStatus = subSignupStatusByOccurrenceId.get(typedOccurrence.id) ?? null
         const isUserAssignedToSession = assignedSessionIds.has(typedOccurrence.sessionId)
 
-        const activeSubCount = activeSubCountByOccurrenceId.get(typedOccurrence.id) ?? 0
+        const summarySubCount = summarySubCountByOccurrenceId.get(typedOccurrence.id) ?? 0
         return this.mapOccurrenceToSummary(
           typedOccurrence,
           registrationStatus,
           subSignupStatus,
           isUserAssignedToSession,
           attendingCount,
-          activeSubCount,
+          summarySubCount,
           registeredUsers,
           subUsers,
           now
         )
       }
 
-      const activeSubCount = activeSubCountByOccurrenceId.get(occurrence.id) ?? 0
+      const summarySubCount = summarySubCountByOccurrenceId.get(occurrence.id) ?? 0
       return this.mapOccurrenceToSummary(
         occurrence as OccurrenceWithSession,
         null,
         null,
         false,
         attendingCount,
-        activeSubCount,
+        summarySubCount,
         registeredUsers,
         subUsers,
         now
@@ -529,12 +530,12 @@ export class SessionService {
       throw new Error('Session occurrence missing')
     }
 
-    const [attendingCount, activeSubCount, attendingRegistrations, nonCanceledSubSignups] = await Promise.all([
+    const [attendingCount, summarySubCount, attendingRegistrations, summarySubSignups] = await Promise.all([
       prisma.sessionRegistration.count({
         where: { occurrenceId, status: registrationStatusAttending }
       }),
       prisma.subSignup.count({
-        where: { occurrenceId, status: subSignupStatusActive }
+        where: { occurrenceId, status: { in: subSignupSummaryStatuses } }
       }),
       prisma.sessionRegistration.findMany({
         where: { occurrenceId, status: registrationStatusAttending },
@@ -542,7 +543,7 @@ export class SessionService {
         orderBy: { createdAt: 'asc' }
       }),
       prisma.subSignup.findMany({
-        where: { occurrenceId, status: { not: subSignupStatusCanceled } },
+        where: { occurrenceId, status: { in: subSignupSummaryStatuses } },
         select: { user: { select: { id: true, displayName: true } } },
         orderBy: { signedUpAt: 'asc' }
       })
@@ -552,7 +553,7 @@ export class SessionService {
       displayName: registration.user.displayName?.trim() || null,
       profileImageUrl: null
     }))
-    const subUsers = nonCanceledSubSignups.map((subSignup) => ({
+    const subUsers = summarySubSignups.map((subSignup) => ({
       id: subSignup.user.id,
       displayName: subSignup.user.displayName?.trim() || null,
       profileImageUrl: null
@@ -565,7 +566,7 @@ export class SessionService {
       null,
       isUserAssignedToSession,
       attendingCount,
-      activeSubCount,
+      summarySubCount,
       registeredUsers,
       subUsers,
       new Date()
@@ -691,7 +692,7 @@ export class SessionService {
     subSignupStatus: SubSignupStatus | null,
     isUserAssignedToSession: boolean,
     attendingCount: number,
-    activeSubCount: number,
+    summarySubCount: number,
     registeredUsers: SessionParticipantSummary[],
     subUsers: SessionParticipantSummary[],
     now: Date
@@ -713,7 +714,7 @@ export class SessionService {
       subSignupStatus,
       isUserAssignedToSession,
       attendingCount,
-      subCount: activeSubCount,
+      subCount: summarySubCount,
       registeredUsers,
       subUsers,
       displayState,

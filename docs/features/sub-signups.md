@@ -23,4 +23,4 @@
 - Store sub queue position with `signedUpAt`; re-signing after cancel resets `signedUpAt` so players move to the end.
 - After registration closes, scheduler ticks enqueue sub-selection jobs through session end so ACTIVE signups can move into SELECTED as the list changes.
 - Sub-selection worker performs the selection calculation and sends selection state-change notifications.
-- Session summaries count only ACTIVE sub signups; canceled/selected/replaced do not contribute to subCount.
+- Session summaries count ACTIVE + SELECTED sub signups; canceled/replaced do not contribute to subCount.
