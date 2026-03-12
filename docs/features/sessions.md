@@ -29,3 +29,4 @@
 - Session occurrence summaries report subCount using ACTIVE sub signups only (canceled/selected/replaced excluded).
 - Session occurrence summaries report attendingCount using ATTENDING registrations only (canceled/declined excluded).
 - Session occurrence summaries include `registeredUsers` and `subUsers` participant lists (`id`, `displayName`, `profileImageUrl`) for ATTENDING and non-CANCELED sub signup states respectively.
+- Sub participant lists and session detail `subs` are ordered by sub queue signup time (`signedUpAt` ascending).

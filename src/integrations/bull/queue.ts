@@ -2,10 +2,17 @@ import { Queue } from 'bullmq'
 
 import { config } from '../../shared/config.js'
 
-const queueName = 'notifications'
+const notificationsQueueName = 'notifications'
+const subSelectionQueueName = 'sub-selection'
 
-export const notificationQueue = new Queue(queueName, {
-  connection: {
-    url: config.redisUrl
-  }
+const queueConnection = {
+  url: config.redisUrl
+}
+
+export const notificationQueue = new Queue(notificationsQueueName, {
+  connection: queueConnection
+})
+
+export const subSelectionQueue = new Queue(subSelectionQueueName, {
+  connection: queueConnection
 })

@@ -1,9 +1,8 @@
-import { notificationQueue } from '../../integrations/bull/queue.js'
+import { notificationQueue, subSelectionQueue } from '../../integrations/bull/queue.js'
 import { prisma } from '../../shared/prisma.js'
 import { logger } from '../../shared/logger.js'
 import { registrationCloseWarningMinutes, sessionStartWarningMinutes } from '../../shared/constants.js'
 import { SessionService } from '../../features/sessions/sessionService.js'
-import { SubSelectionService } from '../../features/subs/subSelectionService.js'
 import { getEasternRegistrationCloseWarningAt } from '../../shared/time.js'
 
 type QueuePayload = {
@@ -11,9 +10,17 @@ type QueuePayload = {
   deviceTokens: string[]
 }
 
+type SubSelectionQueuePayload = {
+  occurrenceId: string
+}
+
+const subSelectionJobName = 'sub-selection'
+const subSelectionJobIdPrefix = 'sub-selection'
+const subSelectionJobAttempts = 3
+const subSelectionJobBackoffDelayMs = 1_000
+
 export class RegistrationScheduler {
   private sessionService = new SessionService()
-  private subSelectionService = new SubSelectionService()
 
   public async queueRegistrationCloseWarnings(now: Date): Promise<void> {
     const upcoming = await prisma.sessionOccurrence.findMany({
@@ -115,101 +122,41 @@ export class RegistrationScheduler {
   }
 
   public async queueSubSelection(now: Date): Promise<void> {
-    const upcoming = await prisma.sessionOccurrence.findMany({
+    const activeOccurrences = await prisma.sessionOccurrence.findMany({
       where: {
-        startsAt: { gte: now }
-      },
-      include: { session: true }
+        endsAt: { gt: now }
+      }
     })
 
-    for (const occurrence of upcoming) {
+    let queuedCount = 0
+
+    for (const occurrence of activeOccurrences) {
       const { registrationCloseAt } = this.sessionService.calculateRegistrationWindow(occurrence.startsAt)
 
       if (registrationCloseAt > now) {
         continue
       }
 
-      const result = await this.subSelectionService.runSelection(occurrence.id)
-      await this.queueSubSelectionNotifications(occurrence.id, result)
-    }
+      const jobId = `${subSelectionJobIdPrefix}:${occurrence.id}`
 
-    logger.info('Queued sub selection notifications')
-  }
-
-  private async queueSubSelectionNotifications(
-    occurrenceId: string,
-    result: { selectedIds: string[]; replacedIds: string[]; stillActiveIds: string[] }
-  ): Promise<void> {
-    if (result.selectedIds.length === 0 && result.replacedIds.length === 0) {
-      return
-    }
-
-    const selectedSignups = result.selectedIds.length
-      ? await prisma.subSignup.findMany({
-          where: { id: { in: result.selectedIds } },
-          include: { user: { include: { devices: true } } }
-        })
-      : []
-
-    for (const signup of selectedSignups) {
-      const notification = await prisma.notification.create({
-        data: {
-          userId: signup.userId,
-          occurrenceId,
-          title: 'You made the sub list',
-          body: 'You have been selected as a sub for this session.',
-          channel: 'PUSH',
-          status: 'PENDING',
-          kind: 'SUB_SELECTED',
-          payload: { subSignupId: signup.id }
+      await subSelectionQueue.add(
+        subSelectionJobName,
+        { occurrenceId: occurrence.id } as SubSelectionQueuePayload,
+        {
+          jobId,
+          attempts: subSelectionJobAttempts,
+          backoff: {
+            type: 'exponential',
+            delay: subSelectionJobBackoffDelayMs
+          },
+          removeOnComplete: true,
+          removeOnFail: true
         }
-      })
+      )
 
-      const deviceTokens = signup.user.devices.map((device) => device.token)
-
-      if (deviceTokens.length === 0) {
-        continue
-      }
-
-      await notificationQueue.add('sub-selected', {
-        notificationId: notification.id,
-        deviceTokens
-      } as QueuePayload)
+      queuedCount += 1
     }
 
-    if (result.replacedIds.length === 0) {
-      return
-    }
-
-    const replacedSignups = await prisma.subSignup.findMany({
-      where: { id: { in: result.replacedIds } },
-      include: { user: { include: { devices: true } } }
-    })
-
-    for (const signup of replacedSignups) {
-      const notification = await prisma.notification.create({
-        data: {
-          userId: signup.userId,
-          occurrenceId,
-          title: 'Sub status updated',
-          body: 'You are no longer selected as a sub for this session.',
-          channel: 'PUSH',
-          status: 'PENDING',
-          kind: 'SUB_STATUS_CHANGED',
-          payload: { subSignupId: signup.id }
-        }
-      })
-
-      const deviceTokens = signup.user.devices.map((device) => device.token)
-
-      if (deviceTokens.length === 0) {
-        continue
-      }
-
-      await notificationQueue.add('sub-status-changed', {
-        notificationId: notification.id,
-        deviceTokens
-      } as QueuePayload)
-    }
+    logger.info({ queuedCount }, 'Queued sub selection jobs')
   }
 }

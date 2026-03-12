@@ -324,7 +324,7 @@ export class SessionService {
             occurrenceId: true,
             user: { select: { id: true, displayName: true } }
           },
-          orderBy: { createdAt: 'asc' }
+          orderBy: { signedUpAt: 'asc' }
         })
       ])
 
@@ -544,7 +544,7 @@ export class SessionService {
       prisma.subSignup.findMany({
         where: { occurrenceId, status: { not: subSignupStatusCanceled } },
         select: { user: { select: { id: true, displayName: true } } },
-        orderBy: { createdAt: 'asc' }
+        orderBy: { signedUpAt: 'asc' }
       })
     ])
     const registeredUsers = attendingRegistrations.map((registration) => ({
@@ -588,7 +588,7 @@ export class SessionService {
         subSignups: {
           where: { status: { in: [subSignupStatusActive, subSignupStatusSelected, subSignupStatusReplaced] } },
           include: { user: true },
-          orderBy: { createdAt: 'asc' }
+          orderBy: { signedUpAt: 'asc' }
         }
       }
     })

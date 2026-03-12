@@ -21,8 +21,10 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - Profile stats query for current-league participation, sub signup counts, and attendance/missed summaries
 - Session display state (PAST/LIVE/UPCOMING) derived server-side using Eastern wall-clock projections of UTC instants; live window opens 10am ET day before
 - Registration windows open 10am ET day before and close at 7pm ET day before; sub signups remain open until the session ends (Eastern rules applied to UTC instants)
+- Scheduler ticks enqueue Bull sub-selection jobs from registration close through occurrence end; sub-selection worker recomputes selection and sends push notifications only for selection state changes
 - sessionsWeek sub signup status returns only ACTIVE sub signups for the current user
 - sessionsWeek subCount reflects ACTIVE sub signups only (canceled/selected/replaced excluded)
+- Sub ordering uses signup queue time (`signedUpAt`); cancel + re-sub places the user at the end of the sub list
 - sessionsWeek attendingCount reflects ATTENDING registrations only (canceled/declined excluded)
 - sessionsWeek returns `registeredUsers` and `subUsers` participant objects (`id`, `displayName`, `profileImageUrl`) for ATTENDING registrations and non-CANCELED sub signups
 - Admin portal APIs for league/session management
@@ -50,6 +52,7 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - src/shared/config.ts: Typed environment config
 - src/shared/logger.ts: Pino logger wrapper
 - src/scripts/seed.ts: Seed script for local demo data
+- src/jobs/subSelectionWorker.ts: Bull worker for selection recalculation and sub selection notifications
 
 ## Documentation
 

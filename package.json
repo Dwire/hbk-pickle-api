@@ -11,7 +11,9 @@
 		"format": "prettier --write \"**/*.{ts,json,md,yml,yaml}\"",
 		"prisma": "prisma",
 		"start": "node dist/app/server.js",
-		"scheduler:tick": "pnpm exec tsx --typecheck src/jobs/schedulers/registrationTick.ts"
+		"scheduler:tick": "pnpm exec tsx --typecheck src/jobs/schedulers/registrationTick.ts",
+		"worker:notifications": "pnpm exec tsx --typecheck src/jobs/notificationWorker.ts",
+		"worker:sub-selection": "pnpm exec tsx --typecheck src/jobs/subSelectionWorker.ts"
 	},
 	"dependencies": {
 		"@graphql-tools/schema": "^10.0.2",

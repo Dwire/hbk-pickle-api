@@ -3,9 +3,13 @@ import { logger } from '../../shared/logger.js'
 import { SessionService } from '../sessions/sessionService.js'
 import { getEasternDayRangeUtc } from '../../shared/time.js'
 
+const subSignupStatusActive = 'ACTIVE'
+const subSignupStatusSelected = 'SELECTED'
+const subSignupStatusCanceled = 'CANCELED'
+
 /**
  * SubSignupService
- * - Upserts sub signups for sessions.
+ * - Creates or reactivates sub signups for sessions.
  * - Cancels sub signups when requested.
  * - Used by sub signup mutations.
  */
@@ -58,7 +62,7 @@ export class SubSignupService {
     const existingSubSignup = await prisma.subSignup.findFirst({
       where: {
         userId,
-        status: { in: ['ACTIVE', 'SELECTED'] },
+        status: { in: [subSignupStatusActive, subSignupStatusSelected] },
         occurrence: {
           startsAt: { gte: start, lte: end }
         }
@@ -87,15 +91,37 @@ export class SubSignupService {
       throw new Error(errorUserAlreadySignedUpAsSubSameDay)
     }
 
-    const subSignup = await prisma.subSignup.upsert({
-      where: { userId_occurrenceId: { userId, occurrenceId } },
-      create: {
-        userId,
-        occurrenceId,
-        status: 'ACTIVE'
-      },
-      update: { status: 'ACTIVE' }
+    const existingSignupForOccurrence = await prisma.subSignup.findUnique({
+      where: { userId_occurrenceId: { userId, occurrenceId } }
     })
+
+    if (
+      existingSignupForOccurrence &&
+      (existingSignupForOccurrence.status === subSignupStatusActive ||
+        existingSignupForOccurrence.status === subSignupStatusSelected)
+    ) {
+      logger.info({ occurrenceId, userId }, logUserSignedUpAsSub)
+      return existingSignupForOccurrence
+    }
+
+    const subSignup = existingSignupForOccurrence
+      ? await prisma.subSignup.update({
+          where: { userId_occurrenceId: { userId, occurrenceId } },
+          data: {
+            status: subSignupStatusActive,
+            signedUpAt: now,
+            selectionRank: null,
+            selectedAt: null
+          }
+        })
+      : await prisma.subSignup.create({
+          data: {
+            userId,
+            occurrenceId,
+            status: subSignupStatusActive,
+            signedUpAt: now
+          }
+        })
 
     logger.info({ occurrenceId, userId }, logUserSignedUpAsSub)
     return subSignup
@@ -105,7 +131,7 @@ export class SubSignupService {
     const logUserCanceledSubSignup = 'User canceled sub signup'
     const subSignup = await prisma.subSignup.update({
       where: { userId_occurrenceId: { userId, occurrenceId } },
-      data: { status: 'CANCELED' }
+      data: { status: subSignupStatusCanceled }
     })
 
     logger.info({ occurrenceId, userId }, logUserCanceledSubSignup)
