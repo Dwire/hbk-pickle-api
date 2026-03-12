@@ -23,7 +23,7 @@ export class SubSelectionService {
       include: {
         session: true,
         registrations: { where: { status: 'ATTENDING' } },
-        subSignups: { orderBy: { createdAt: 'asc' } }
+        subSignups: { orderBy: { signedUpAt: 'asc' } }
       }
     })
 

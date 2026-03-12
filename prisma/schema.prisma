@@ -165,6 +165,7 @@ model SubSignup {
   userId     String
   occurrenceId String
   status     SubSignupStatus
+  signedUpAt DateTime        @default(now())
   selectionRank Int?
   selectedAt DateTime?
   createdAt  DateTime        @default(now())
