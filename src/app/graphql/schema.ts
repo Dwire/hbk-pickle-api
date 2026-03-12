@@ -149,8 +149,16 @@ const typeDefs = `#graphql
     isUserAssignedToSession: Boolean!
     attendingCount: Int!
     subCount: Int!
+    registeredUsers: [SessionParticipant!]!
+    subUsers: [SessionParticipant!]!
     displayState: SessionDisplayState!
     liveOpensAt: DateTime!
+  }
+
+  type SessionParticipant {
+    id: ID!
+    displayName: String
+    profileImageUrl: String
   }
 
   type SessionRegistration {
@@ -227,6 +235,10 @@ const typeDefs = `#graphql
 
 const resolvers = {
   DateTime: utcDateTimeScalar,
+  Session: {
+    registeredUsers: (session: { registeredUsers?: unknown[] | null }) => session.registeredUsers ?? [],
+    subUsers: (session: { subUsers?: unknown[] | null }) => session.subUsers ?? []
+  },
   Query: {
     me: (_: unknown, __: unknown, context: AppContext) => {
       return context.request.userId ? context.prisma.user.findUnique({ where: { id: context.request.userId } }) : null

@@ -65,8 +65,16 @@ type SessionOccurrenceSummary = {
   isUserAssignedToSession: boolean
   attendingCount: number
   subCount: number
+  registeredUsers: SessionParticipantSummary[]
+  subUsers: SessionParticipantSummary[]
   displayState: SessionDisplayState
   liveOpensAt: Date
+}
+
+type SessionParticipantSummary = {
+  id: string
+  displayName: string | null
+  profileImageUrl: string | null
 }
 
 type SessionRosterEntry = {
@@ -94,13 +102,6 @@ type SessionOccurrenceDetail = {
 }
 
 type OccurrenceWithSession = SessionOccurrenceGetPayload<{
-  include: {
-    session: true
-    _count: { select: { registrations: true; subSignups: true } }
-  }
-}>
-
-type OccurrenceWithUserData = SessionOccurrenceGetPayload<{
   include: {
     session: true
     _count: { select: { registrations: true; subSignups: true } }
@@ -163,6 +164,27 @@ const getSessionDisplayState = (now: Date, endsAt: Date, liveOpensAt: Date): Ses
   }
 
   return 'UPCOMING'
+}
+
+const appendParticipantByOccurrence = (
+  participantsByOccurrenceId: Map<string, SessionParticipantSummary[]>,
+  occurrenceId: string,
+  userId: string,
+  displayName: string | null
+): void => {
+  const normalizedDisplayName = displayName?.trim() || null
+  const participant: SessionParticipantSummary = {
+    id: userId,
+    displayName: normalizedDisplayName,
+    profileImageUrl: null
+  }
+  const existingParticipants = participantsByOccurrenceId.get(occurrenceId)
+  if (existingParticipants) {
+    existingParticipants.push(participant)
+    return
+  }
+
+  participantsByOccurrenceId.set(occurrenceId, [participant])
 }
 
 
@@ -260,15 +282,52 @@ export class SessionService {
     })
 
     const attendingCountByOccurrenceId = new Map<string, number>()
+    const activeSubCountByOccurrenceId = new Map<string, number>()
+    const registeredUsersByOccurrenceId = new Map<string, SessionParticipantSummary[]>()
+    const subUsersByOccurrenceId = new Map<string, SessionParticipantSummary[]>()
     if (occurrences.length > 0) {
-      const attendingCounts = await prisma.sessionRegistration.groupBy({
-        by: ['occurrenceId'],
-        where: {
-          occurrenceId: { in: occurrences.map((occurrence) => occurrence.id) },
-          status: registrationStatusAttending
-        },
-        _count: { _all: true }
-      })
+      const occurrenceIds = occurrences.map((occurrence) => occurrence.id)
+      const [attendingCounts, activeSubCounts, attendingRegistrations, nonCanceledSubSignups] = await Promise.all([
+        prisma.sessionRegistration.groupBy({
+          by: ['occurrenceId'],
+          where: {
+            occurrenceId: { in: occurrenceIds },
+            status: registrationStatusAttending
+          },
+          _count: { _all: true }
+        }),
+        prisma.subSignup.groupBy({
+          by: ['occurrenceId'],
+          where: {
+            occurrenceId: { in: occurrenceIds },
+            status: subSignupStatusActive
+          },
+          _count: { _all: true }
+        }),
+        prisma.sessionRegistration.findMany({
+          where: {
+            occurrenceId: { in: occurrenceIds },
+            status: registrationStatusAttending
+          },
+          select: {
+            occurrenceId: true,
+            user: { select: { id: true, displayName: true } }
+          },
+          orderBy: { createdAt: 'asc' }
+        }),
+        prisma.subSignup.findMany({
+          where: {
+            occurrenceId: { in: occurrenceIds },
+            status: { not: subSignupStatusCanceled }
+          },
+          select: {
+            occurrenceId: true,
+            user: { select: { id: true, displayName: true } }
+          },
+          orderBy: { createdAt: 'asc' }
+        })
+      ])
+
       attendingCounts.forEach((countEntry) => {
         attendingCountByOccurrenceId.set(countEntry.occurrenceId, countEntry._count._all)
       })
@@ -276,18 +335,7 @@ export class SessionService {
         { occurrenceCount: occurrences.length, attendingRegistrationCounts: attendingCounts.length },
         logLoadedAttendingRegistrationCounts
       )
-    }
 
-    const activeSubCountByOccurrenceId = new Map<string, number>()
-    if (occurrences.length > 0) {
-      const activeSubCounts = await prisma.subSignup.groupBy({
-        by: ['occurrenceId'],
-        where: {
-          occurrenceId: { in: occurrences.map((occurrence) => occurrence.id) },
-          status: subSignupStatusActive
-        },
-        _count: { _all: true }
-      })
       activeSubCounts.forEach((countEntry) => {
         activeSubCountByOccurrenceId.set(countEntry.occurrenceId, countEntry._count._all)
       })
@@ -295,6 +343,23 @@ export class SessionService {
         { occurrenceCount: occurrences.length, activeSubSignupCounts: activeSubCounts.length },
         logLoadedActiveSubSignupCounts
       )
+
+      attendingRegistrations.forEach((registration) => {
+        appendParticipantByOccurrence(
+          registeredUsersByOccurrenceId,
+          registration.occurrenceId,
+          registration.user.id,
+          registration.user.displayName
+        )
+      })
+      nonCanceledSubSignups.forEach((subSignup) => {
+        appendParticipantByOccurrence(
+          subUsersByOccurrenceId,
+          subSignup.occurrenceId,
+          subSignup.user.id,
+          subSignup.user.displayName
+        )
+      })
     }
 
     const assignedSessionIds = new Set<string>()
@@ -364,6 +429,8 @@ export class SessionService {
 
     const summaries = occurrences.map((occurrence: (typeof occurrences)[number]) => {
       const attendingCount = attendingCountByOccurrenceId.get(occurrence.id) ?? 0
+      const registeredUsers = registeredUsersByOccurrenceId.get(occurrence.id) ?? []
+      const subUsers = subUsersByOccurrenceId.get(occurrence.id) ?? []
       if (includeUserStatus) {
         const typedOccurrence = occurrence as OccurrenceWithSession
         const registrationStatus = registrationStatusByOccurrenceId.get(typedOccurrence.id) ?? null
@@ -378,6 +445,8 @@ export class SessionService {
           isUserAssignedToSession,
           attendingCount,
           activeSubCount,
+          registeredUsers,
+          subUsers,
           now
         )
       }
@@ -390,6 +459,8 @@ export class SessionService {
         false,
         attendingCount,
         activeSubCount,
+        registeredUsers,
+        subUsers,
         now
       )
     })
@@ -458,12 +529,34 @@ export class SessionService {
       throw new Error('Session occurrence missing')
     }
 
-    const attendingCount = await prisma.sessionRegistration.count({
-      where: { occurrenceId, status: registrationStatusAttending }
-    })
-    const activeSubCount = await prisma.subSignup.count({
-      where: { occurrenceId, status: subSignupStatusActive }
-    })
+    const [attendingCount, activeSubCount, attendingRegistrations, nonCanceledSubSignups] = await Promise.all([
+      prisma.sessionRegistration.count({
+        where: { occurrenceId, status: registrationStatusAttending }
+      }),
+      prisma.subSignup.count({
+        where: { occurrenceId, status: subSignupStatusActive }
+      }),
+      prisma.sessionRegistration.findMany({
+        where: { occurrenceId, status: registrationStatusAttending },
+        select: { user: { select: { id: true, displayName: true } } },
+        orderBy: { createdAt: 'asc' }
+      }),
+      prisma.subSignup.findMany({
+        where: { occurrenceId, status: { not: subSignupStatusCanceled } },
+        select: { user: { select: { id: true, displayName: true } } },
+        orderBy: { createdAt: 'asc' }
+      })
+    ])
+    const registeredUsers = attendingRegistrations.map((registration) => ({
+      id: registration.user.id,
+      displayName: registration.user.displayName?.trim() || null,
+      profileImageUrl: null
+    }))
+    const subUsers = nonCanceledSubSignups.map((subSignup) => ({
+      id: subSignup.user.id,
+      displayName: subSignup.user.displayName?.trim() || null,
+      profileImageUrl: null
+    }))
     const isUserAssignedToSession = false
     logger.info({ occurrenceId, isUserAssignedToSession }, logSessionSummaryWithoutAssignment)
     return this.mapOccurrenceToSummary(
@@ -473,6 +566,8 @@ export class SessionService {
       isUserAssignedToSession,
       attendingCount,
       activeSubCount,
+      registeredUsers,
+      subUsers,
       new Date()
     )
   }
@@ -597,6 +692,8 @@ export class SessionService {
     isUserAssignedToSession: boolean,
     attendingCount: number,
     activeSubCount: number,
+    registeredUsers: SessionParticipantSummary[],
+    subUsers: SessionParticipantSummary[],
     now: Date
   ): SessionOccurrenceSummary {
     const liveOpensAt = calculateLiveOpensAt(occurrence.startsAt)
@@ -617,6 +714,8 @@ export class SessionService {
       isUserAssignedToSession,
       attendingCount,
       subCount: activeSubCount,
+      registeredUsers,
+      subUsers,
       displayState,
       liveOpensAt
     }

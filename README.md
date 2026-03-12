@@ -24,6 +24,7 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - sessionsWeek sub signup status returns only ACTIVE sub signups for the current user
 - sessionsWeek subCount reflects ACTIVE sub signups only (canceled/selected/replaced excluded)
 - sessionsWeek attendingCount reflects ATTENDING registrations only (canceled/declined excluded)
+- sessionsWeek returns `registeredUsers` and `subUsers` participant objects (`id`, `displayName`, `profileImageUrl`) for ATTENDING registrations and non-CANCELED sub signups
 - Admin portal APIs for league/session management
 - Rules page content management
 - Notification scheduling and delivery

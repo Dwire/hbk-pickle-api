@@ -28,3 +28,4 @@
 - sessionsWeek sub signup status returns only ACTIVE records for the current user (canceled/selected/replaced are excluded).
 - Session occurrence summaries report subCount using ACTIVE sub signups only (canceled/selected/replaced excluded).
 - Session occurrence summaries report attendingCount using ATTENDING registrations only (canceled/declined excluded).
+- Session occurrence summaries include `registeredUsers` and `subUsers` participant lists (`id`, `displayName`, `profileImageUrl`) for ATTENDING and non-CANCELED sub signup states respectively.
