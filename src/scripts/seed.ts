@@ -1,15 +1,15 @@
-import type { Weekday } from '../generated/prisma/client.js'
+import type { RegistrationStatus, SubSignupStatus, Weekday } from '../generated/prisma/client.js'
 import { logger } from '../shared/logger.js'
 import { prisma } from '../shared/prisma.js'
 import {
   easternDayMinutesToUtc,
   easternZonedTimeToUtc,
-  getEasternDateParts,
   getEasternWeekRangeUtc,
-  shiftDateByDays
+  shiftDateByDays,
+  type DateParts
 } from '../shared/time.js'
 
-const seedLeagueName = 'Seed League'
+const seedLeagueNamePrefix = 'Seed League'
 const seedLeagueTimeZone = 'America/New_York'
 const seedUserDisplayNamePrefix = 'Seed Player'
 const seedPhonePrefix = '+155500'
@@ -17,24 +17,29 @@ const protectedUserId = '714415e3-5239-4db0-9800-add7cc45c4c9'
 const protectedUserPhoneNumber = '+1555990000'
 const protectedUserDisplayName = 'Seed Protected Player'
 
-const seedWeeks = 2
+const seedLeagueCount = 3
+const pastLeagueCount = 2
+const leagueDurationWeeks = 3
 const playersPerSession = 5
 const protectedUserCount = 1
-const thursdaySessionTemplateCount = 3
+const sessionsPerDay = 3
 
 const minutesPerHour = 60
 const sessionDurationMinutes = 90
 const firstSessionStartHour = 18
 const secondSessionStartHour = 20
-const thirdThursdaySessionStartHour = 22
+const thirdSessionStartHour = 22
 const sessionStartMinute = 0
 const phoneNumberStart = 1
 const phoneNumberWidth = 4
 const daysInWeek = 7
-const dateSegmentWidth = 2
-const zeroPadCharacter = '0'
-const monthDaySeparator = '/'
-const thursdayWeekday: Weekday = 'THURSDAY'
+const randomRegistrationMin = 1
+const randomRegistrationMax = 5
+const randomSubSignupMin = 3
+const randomSubSignupMax = 10
+
+const registrationStatusAttending: RegistrationStatus = 'ATTENDING'
+const subSignupStatusActive: SubSignupStatus = 'ACTIVE'
 
 const seedWeekdays: Weekday[] = ['MONDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY']
 
@@ -58,6 +63,18 @@ type LeagueRuleSeed = {
   order: number
 }
 
+type LeagueSeedConfig = {
+  name: string
+  isActive: boolean
+  startDateParts: DateParts
+}
+
+type AssignmentSeed = {
+  leagueId: string
+  sessionId: string
+  userId: string
+}
+
 const sessionTimeConfigs: SessionTimeConfig[] = [
   {
     label: 'Early',
@@ -65,18 +82,14 @@ const sessionTimeConfigs: SessionTimeConfig[] = [
     endMinutes: firstSessionStartHour * minutesPerHour + sessionStartMinute + sessionDurationMinutes
   },
   {
-    label: 'Late',
+    label: 'Mid',
     startMinutes: secondSessionStartHour * minutesPerHour + sessionStartMinute,
     endMinutes: secondSessionStartHour * minutesPerHour + sessionStartMinute + sessionDurationMinutes
-  }
-]
-
-const thursdaySessionTimeConfigs: SessionTimeConfig[] = [
-  ...sessionTimeConfigs,
+  },
   {
-    label: 'Night',
-    startMinutes: thirdThursdaySessionStartHour * minutesPerHour + sessionStartMinute,
-    endMinutes: thirdThursdaySessionStartHour * minutesPerHour + sessionStartMinute + sessionDurationMinutes
+    label: 'Late',
+    startMinutes: thirdSessionStartHour * minutesPerHour + sessionStartMinute,
+    endMinutes: thirdSessionStartHour * minutesPerHour + sessionStartMinute + sessionDurationMinutes
   }
 ]
 
@@ -91,16 +104,15 @@ const weekdayIndexMap: Record<Weekday, number> = {
 }
 
 const buildSessionTemplates = (): SessionTemplateConfig[] =>
-  seedWeekdays.flatMap((weekday) => {
-    const weekdaySessionTimes = weekday === thursdayWeekday ? thursdaySessionTimeConfigs : sessionTimeConfigs
-    return weekdaySessionTimes.map((timeConfig) => ({
+  seedWeekdays.flatMap((weekday) =>
+    sessionTimeConfigs.map((timeConfig) => ({
       title: `${weekday} ${timeConfig.label}`,
       weekday,
       startTimeMinutes: timeConfig.startMinutes,
       endTimeMinutes: timeConfig.endMinutes,
       capacity: playersPerSession
     }))
-  })
+  )
 
 const getSeedGeneratedUserCount = (sessionTemplates: SessionTemplateConfig[]) =>
   sessionTemplates.length * playersPerSession - protectedUserCount
@@ -111,16 +123,46 @@ const ensureSeedCounts = (sessionTemplates: SessionTemplateConfig[]) => {
     throw new Error('Seed user count must be greater than zero after reserving protected user')
   }
 
-  const thursdayTemplateCount = sessionTemplates.filter((template) => template.weekday === thursdayWeekday).length
-  if (thursdayTemplateCount !== thursdaySessionTemplateCount) {
-    throw new Error(`Seed must define exactly ${String(thursdaySessionTemplateCount)} Thursday sessions`)
+  if (seedLeagueCount !== pastLeagueCount + 1) {
+    throw new Error('Seed league configuration must include exactly one current league')
+  }
+
+  const expectedTemplateCount = seedWeekdays.length * sessionsPerDay
+  if (sessionTemplates.length !== expectedTemplateCount) {
+    throw new Error(
+      `Seed must define exactly ${String(expectedTemplateCount)} session templates (${String(sessionsPerDay)} per day)`
+    )
+  }
+
+  for (const weekday of seedWeekdays) {
+    const weekdayTemplateCount = sessionTemplates.filter((template) => template.weekday === weekday).length
+    if (weekdayTemplateCount !== sessionsPerDay) {
+      throw new Error(`Seed must define exactly ${String(sessionsPerDay)} sessions for ${weekday}`)
+    }
   }
 }
 
-const getCurrentWeekStartDate = () => {
+const getCurrentWeekStartDateParts = (): DateParts => {
   const { start } = getEasternWeekRangeUtc(new Date())
-  return start
+  return {
+    year: start.getUTCFullYear(),
+    month: start.getUTCMonth() + 1,
+    day: start.getUTCDate()
+  }
 }
+
+const buildLeagueSeedConfigs = (currentWeekStartDateParts: DateParts): LeagueSeedConfig[] =>
+  Array.from({ length: seedLeagueCount }, (_, leagueIndex) => {
+    const weekOffsetFromCurrent = (leagueIndex - pastLeagueCount) * leagueDurationWeeks
+    const startDateParts = shiftDateByDays(currentWeekStartDateParts, weekOffsetFromCurrent * daysInWeek)
+    const isCurrentLeague = leagueIndex === seedLeagueCount - 1
+
+    return {
+      name: isCurrentLeague ? `${seedLeagueNamePrefix} Current` : `${seedLeagueNamePrefix} Past ${String(leagueIndex + 1)}`,
+      isActive: isCurrentLeague,
+      startDateParts
+    }
+  })
 
 const buildUserData = (seedGeneratedUserCount: number) =>
   Array.from({ length: seedGeneratedUserCount }, (_, index) => {
@@ -202,17 +244,53 @@ const buildLeagueRules = (leagueId: string) => {
   }))
 }
 
-const buildOccurrenceDates = (baseWeekStart: Date, weekday: Weekday, startMinutes: number, endMinutes: number) =>
-  Array.from({ length: seedWeeks }, (_, weekIndex) => {
+const buildOccurrenceDates = (
+  baseWeekStartDateParts: DateParts,
+  weekday: Weekday,
+  startMinutes: number,
+  endMinutes: number
+) =>
+  Array.from({ length: leagueDurationWeeks }, (_, weekIndex) => {
     const dayOffset = weekdayIndexMap[weekday] - weekdayIndexMap.MONDAY
-    const dayStart = shiftDateByDays(
-      { year: baseWeekStart.getUTCFullYear(), month: baseWeekStart.getUTCMonth() + 1, day: baseWeekStart.getUTCDate() },
-      weekIndex * daysInWeek + dayOffset
-    )
+    const dayStart = shiftDateByDays(baseWeekStartDateParts, weekIndex * daysInWeek + dayOffset)
     const startsAt = easternDayMinutesToUtc(dayStart, startMinutes)
     const endsAt = easternDayMinutesToUtc(dayStart, endMinutes)
     return { startsAt, endsAt }
   })
+
+const toEasternMidnightUtc = (dateParts: DateParts): Date =>
+  easternZonedTimeToUtc({
+    ...dateParts,
+    hour: 0,
+    minute: 0,
+    second: 0,
+    millisecond: 0
+  })
+
+const getRandomIntInclusive = (minimum: number, maximum: number): number =>
+  Math.floor(Math.random() * (maximum - minimum + 1)) + minimum
+
+const shuffleValues = <T>(values: T[]): T[] => {
+  const copy = [...values]
+
+  for (let index = copy.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1))
+    const currentValue = copy[index]
+    copy[index] = copy[swapIndex]
+    copy[swapIndex] = currentValue
+  }
+
+  return copy
+}
+
+const pickRandomValues = <T>(values: T[], count: number): T[] => {
+  if (count <= 0 || values.length === 0) {
+    return []
+  }
+
+  const maxCount = Math.min(values.length, count)
+  return shuffleValues(values).slice(0, maxCount)
+}
 
 const clearSeedData = async () => {
   const notificationResult = await prisma.notification.deleteMany()
@@ -265,47 +343,106 @@ const ensureProtectedUser = async () => {
   return createdUser
 }
 
-const seedLeague = async () => {
+const buildLeagueAssignments = (
+  leagueId: string,
+  sessions: { id: string }[],
+  users: { id: string }[]
+): AssignmentSeed[] => {
+  const assignments = sessions.flatMap((session, sessionIndex) => {
+    const startIndex = sessionIndex * playersPerSession
+    const assignedUsers = users.slice(startIndex, startIndex + playersPerSession)
+
+    if (assignedUsers.length !== playersPerSession) {
+      throw new Error('Not enough users to assign five players to each session')
+    }
+
+    return assignedUsers.map((user) => ({
+      leagueId,
+      sessionId: session.id,
+      userId: user.id
+    }))
+  })
+
+  const assignmentUserCount = new Set(assignments.map((assignment) => assignment.userId)).size
+  if (assignmentUserCount !== assignments.length) {
+    throw new Error('A user was assigned to more than one session within the same league')
+  }
+
+  return assignments
+}
+
+const backfillPastOccurrenceActivity = async (
+  occurrences: { id: string; sessionId: string; startsAt: Date }[],
+  assignments: AssignmentSeed[],
+  allUserIds: string[]
+) => {
+  const now = new Date()
+  const pastOccurrences = occurrences.filter((occurrence) => occurrence.startsAt < now)
+
+  if (pastOccurrences.length === 0) {
+    return { registrationCount: 0, subSignupCount: 0 }
+  }
+
+  const assignedUserIdsBySessionId = new Map<string, string[]>()
+  assignments.forEach((assignment) => {
+    const existing = assignedUserIdsBySessionId.get(assignment.sessionId) ?? []
+    existing.push(assignment.userId)
+    assignedUserIdsBySessionId.set(assignment.sessionId, existing)
+  })
+
+  const registrationsToCreate: { userId: string; occurrenceId: string; status: RegistrationStatus }[] = []
+  const subSignupsToCreate: { userId: string; occurrenceId: string; status: SubSignupStatus }[] = []
+
+  for (const occurrence of pastOccurrences) {
+    const assignedUserIds = assignedUserIdsBySessionId.get(occurrence.sessionId) ?? []
+    const desiredRegistrationCount = getRandomIntInclusive(randomRegistrationMin, randomRegistrationMax)
+    const registeredUserIds = pickRandomValues(assignedUserIds, desiredRegistrationCount)
+
+    registeredUserIds.forEach((userId) => {
+      registrationsToCreate.push({
+        userId,
+        occurrenceId: occurrence.id,
+        status: registrationStatusAttending
+      })
+    })
+
+    const unavailableForSubs = new Set(assignedUserIds)
+    registeredUserIds.forEach((userId) => unavailableForSubs.add(userId))
+
+    const subPoolUserIds = allUserIds.filter((userId) => !unavailableForSubs.has(userId))
+    const desiredSubSignupCount = getRandomIntInclusive(randomSubSignupMin, randomSubSignupMax)
+    const subSignupUserIds = pickRandomValues(subPoolUserIds, desiredSubSignupCount)
+
+    subSignupUserIds.forEach((userId) => {
+      subSignupsToCreate.push({
+        userId,
+        occurrenceId: occurrence.id,
+        status: subSignupStatusActive
+      })
+    })
+  }
+
+  if (registrationsToCreate.length > 0) {
+    await prisma.sessionRegistration.createMany({ data: registrationsToCreate })
+  }
+
+  if (subSignupsToCreate.length > 0) {
+    await prisma.subSignup.createMany({ data: subSignupsToCreate })
+  }
+
+  return {
+    registrationCount: registrationsToCreate.length,
+    subSignupCount: subSignupsToCreate.length
+  }
+}
+
+const seedLeagues = async () => {
   const sessionTemplates = buildSessionTemplates()
   ensureSeedCounts(sessionTemplates)
   await clearSeedData()
 
-  const baseWeekStart = getCurrentWeekStartDate()
-  const baseWeekStartParts = {
-    year: baseWeekStart.getUTCFullYear(),
-    month: baseWeekStart.getUTCMonth() + 1,
-    day: baseWeekStart.getUTCDate()
-  }
-  const leagueEndDateParts = shiftDateByDays(baseWeekStartParts, daysInWeek * seedWeeks)
-  const leagueEndDate = easternZonedTimeToUtc({
-    ...leagueEndDateParts,
-    hour: 0,
-    minute: 0,
-    second: 0,
-    millisecond: 0
-  })
-
-  const league = await prisma.league.create({
-    data: {
-      name: seedLeagueName,
-      timeZone: seedLeagueTimeZone,
-      startDate: easternZonedTimeToUtc({
-        ...baseWeekStartParts,
-        hour: 0,
-        minute: 0,
-        second: 0,
-        millisecond: 0
-      }),
-      endDate: leagueEndDate,
-      isActive: true
-    }
-  })
-
-  const leagueRules = buildLeagueRules(league.id)
-  if (leagueRules.length > 0) {
-    const rulesResult = await prisma.leagueRule.createMany({ data: leagueRules })
-    logger.info({ count: rulesResult.count }, 'Seeded league rules')
-  }
+  const currentWeekStartDateParts = getCurrentWeekStartDateParts()
+  const leagueSeedConfigs = buildLeagueSeedConfigs(currentWeekStartDateParts)
 
   const protectedUser = await ensureProtectedUser()
   const userData = buildUserData(getSeedGeneratedUserCount(sessionTemplates))
@@ -315,111 +452,111 @@ const seedLeague = async () => {
     orderBy: { phoneNumber: 'asc' }
   })
   const users = [protectedUser, ...seedUsers]
+  const allUserIds = users.map((user) => user.id)
 
-  const sessions = await Promise.all(
-    sessionTemplates.map((template) =>
-      prisma.session.create({
-        data: {
-          leagueId: league.id,
-          title: template.title,
-          weekday: template.weekday,
-          startTimeMinutes: template.startTimeMinutes,
-          endTimeMinutes: template.endTimeMinutes,
-          capacity: template.capacity
-        }
-      })
-    )
-  )
+  let totalSessionCount = 0
+  let totalOccurrenceCount = 0
+  let totalAssignmentCount = 0
+  let totalRegistrationCount = 0
+  let totalSubSignupCount = 0
 
-  const assignments = sessions.flatMap((session, sessionIndex) => {
-    const startIndex = sessionIndex * playersPerSession
-    const assignedUsers = users.slice(startIndex, startIndex + playersPerSession)
-    return assignedUsers.map((user) => ({
-      leagueId: league.id,
-      sessionId: session.id,
-      userId: user.id
-    }))
-  })
+  for (const leagueConfig of leagueSeedConfigs) {
+    const leagueEndDateParts = shiftDateByDays(leagueConfig.startDateParts, daysInWeek * leagueDurationWeeks)
 
-  const protectedUserAssigned = assignments.some((assignment) => assignment.userId === protectedUser.id)
-  if (!protectedUserAssigned) {
-    const fallbackSession = sessions[0]
-    const fallbackSessionTitle = fallbackSession?.title
-    if (!fallbackSession) {
-      throw new Error('No sessions available to assign protected user')
+    const league = await prisma.league.create({
+      data: {
+        name: leagueConfig.name,
+        timeZone: seedLeagueTimeZone,
+        startDate: toEasternMidnightUtc(leagueConfig.startDateParts),
+        endDate: toEasternMidnightUtc(leagueEndDateParts),
+        isActive: leagueConfig.isActive
+      }
+    })
+
+    const leagueRules = buildLeagueRules(league.id)
+    if (leagueRules.length > 0) {
+      await prisma.leagueRule.createMany({ data: leagueRules })
     }
 
-    assignments.push({
-      leagueId: league.id,
-      sessionId: fallbackSession.id,
-      userId: protectedUser.id
-    })
-    logger.info(
-      { userId: protectedUser.id, sessionId: fallbackSession.id, sessionTitle: fallbackSessionTitle },
-      'Assigned protected user to fallback session'
+    const sessions = await Promise.all(
+      sessionTemplates.map((template) =>
+        prisma.session.create({
+          data: {
+            leagueId: league.id,
+            title: template.title,
+            weekday: template.weekday,
+            startTimeMinutes: template.startTimeMinutes,
+            endTimeMinutes: template.endTimeMinutes,
+            capacity: template.capacity
+          }
+        })
+      )
     )
-  }
 
-  if (assignments.length > 0) {
-    await prisma.slotAssignment.createMany({ data: assignments })
-  }
+    const assignments = buildLeagueAssignments(league.id, sessions, users)
+    if (assignments.length > 0) {
+      await prisma.slotAssignment.createMany({ data: assignments })
+    }
 
-  const occurrences = sessions.flatMap((session) =>
-    buildOccurrenceDates(baseWeekStart, session.weekday, session.startTimeMinutes, session.endTimeMinutes).map(
-      (occurrence) => ({
+    const occurrences = sessions.flatMap((session) =>
+      buildOccurrenceDates(
+        leagueConfig.startDateParts,
+        session.weekday,
+        session.startTimeMinutes,
+        session.endTimeMinutes
+      ).map((occurrence) => ({
         sessionId: session.id,
         startsAt: occurrence.startsAt,
         endsAt: occurrence.endsAt
-      })
+      }))
     )
-  )
 
-  const targetThursdayDateParts = shiftDateByDays(baseWeekStartParts, weekdayIndexMap.THURSDAY - weekdayIndexMap.MONDAY)
-  const expectedTargetThursdayOccurrenceCount = sessionTemplates.filter(
-    (template) => template.weekday === thursdayWeekday
-  ).length
-  const sessionsById = new Map(sessions.map((session) => [session.id, session] as const))
-  const targetThursdayOccurrenceCount = occurrences.filter((occurrence) => {
-    const session = sessionsById.get(occurrence.sessionId)
-    if (session?.weekday !== thursdayWeekday) {
-      return false
+    if (occurrences.length > 0) {
+      await prisma.sessionOccurrence.createMany({ data: occurrences })
     }
 
-    const occurrenceDateParts = getEasternDateParts(occurrence.startsAt)
-    return (
-      occurrenceDateParts.year === targetThursdayDateParts.year &&
-      occurrenceDateParts.month === targetThursdayDateParts.month &&
-      occurrenceDateParts.day === targetThursdayDateParts.day
-    )
-  }).length
+    const createdOccurrences = await prisma.sessionOccurrence.findMany({
+      where: { sessionId: { in: sessions.map((session) => session.id) } },
+      select: { id: true, sessionId: true, startsAt: true }
+    })
 
-  if (targetThursdayOccurrenceCount !== expectedTargetThursdayOccurrenceCount) {
-    throw new Error(
-      `Expected ${String(expectedTargetThursdayOccurrenceCount)} Thursday occurrences for ${String(targetThursdayDateParts.month).padStart(dateSegmentWidth, zeroPadCharacter)}${monthDaySeparator}${String(targetThursdayDateParts.day).padStart(dateSegmentWidth, zeroPadCharacter)}, found ${String(targetThursdayOccurrenceCount)}`
+    const { registrationCount, subSignupCount } = await backfillPastOccurrenceActivity(
+      createdOccurrences,
+      assignments,
+      allUserIds
+    )
+
+    totalSessionCount += sessions.length
+    totalOccurrenceCount += occurrences.length
+    totalAssignmentCount += assignments.length
+    totalRegistrationCount += registrationCount
+    totalSubSignupCount += subSignupCount
+
+    logger.info(
+      {
+        leagueId: league.id,
+        leagueName: league.name,
+        isActive: league.isActive,
+        sessions: sessions.length,
+        occurrences: occurrences.length,
+        assignments: assignments.length,
+        registrations: registrationCount,
+        subSignups: subSignupCount,
+        rules: leagueRules.length
+      },
+      'Seeded league data'
     )
   }
 
   logger.info(
     {
-      targetThursdayDate: `${String(targetThursdayDateParts.month).padStart(dateSegmentWidth, zeroPadCharacter)}${monthDaySeparator}${String(targetThursdayDateParts.day).padStart(dateSegmentWidth, zeroPadCharacter)}`,
-      expectedCount: expectedTargetThursdayOccurrenceCount,
-      occurrenceCount: targetThursdayOccurrenceCount
-    },
-    'Validated Thursday occurrences for current Eastern week'
-  )
-
-  if (occurrences.length > 0) {
-    await prisma.sessionOccurrence.createMany({ data: occurrences })
-  }
-
-  logger.info(
-    {
-      leagueId: league.id,
+      leagues: leagueSeedConfigs.length,
       users: users.length,
-      sessions: sessions.length,
-      occurrences: occurrences.length,
-      assignments: assignments.length,
-      rules: leagueRules.length
+      sessions: totalSessionCount,
+      occurrences: totalOccurrenceCount,
+      assignments: totalAssignmentCount,
+      registrations: totalRegistrationCount,
+      subSignups: totalSubSignupCount
     },
     'Seed data created'
   )
@@ -427,7 +564,7 @@ const seedLeague = async () => {
 
 const runSeed = async () => {
   try {
-    await seedLeague()
+    await seedLeagues()
   } catch (error) {
     logger.error({ error }, 'Seed failed')
     throw error
