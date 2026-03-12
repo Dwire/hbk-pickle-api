@@ -13,4 +13,5 @@
 - Seed data and scheduler timing use shared UTC/Eastern utilities.
 - sessionsWeek subSignupStatus filtering now returns only ACTIVE sub signups for the current user.
 - Seed script now creates default league rules for the demo league.
+- Seed script enforces exactly 3 Thursday session templates and validates current-week Thursday occurrence count (Eastern).
 - profileStats query uses slot assignments to pick current league (prefer active), then counts sub signups and registrations scoped to that league.

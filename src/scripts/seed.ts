@@ -1,7 +1,13 @@
 import type { Weekday } from '../generated/prisma/client.js'
 import { logger } from '../shared/logger.js'
 import { prisma } from '../shared/prisma.js'
-import { easternDayMinutesToUtc, easternZonedTimeToUtc, getEasternWeekRangeUtc, shiftDateByDays } from '../shared/time.js'
+import {
+  easternDayMinutesToUtc,
+  easternZonedTimeToUtc,
+  getEasternDateParts,
+  getEasternWeekRangeUtc,
+  shiftDateByDays
+} from '../shared/time.js'
 
 const seedLeagueName = 'Seed League'
 const seedLeagueTimeZone = 'America/New_York'
@@ -12,21 +18,25 @@ const protectedUserPhoneNumber = '+1555990000'
 const protectedUserDisplayName = 'Seed Protected Player'
 
 const seedWeeks = 2
-const sessionDaysPerWeek = 3
-const sessionsPerDay = 2
 const playersPerSession = 5
 const protectedUserCount = 1
+const thursdaySessionTemplateCount = 3
 
 const minutesPerHour = 60
 const sessionDurationMinutes = 90
 const firstSessionStartHour = 18
 const secondSessionStartHour = 20
+const thirdThursdaySessionStartHour = 22
 const sessionStartMinute = 0
 const phoneNumberStart = 1
 const phoneNumberWidth = 4
 const daysInWeek = 7
+const dateSegmentWidth = 2
+const zeroPadCharacter = '0'
+const monthDaySeparator = '/'
+const thursdayWeekday: Weekday = 'THURSDAY'
 
-const seedWeekdays: Weekday[] = ['MONDAY', 'WEDNESDAY', 'FRIDAY']
+const seedWeekdays: Weekday[] = ['MONDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY']
 
 type SessionTimeConfig = {
   label: string
@@ -61,6 +71,15 @@ const sessionTimeConfigs: SessionTimeConfig[] = [
   }
 ]
 
+const thursdaySessionTimeConfigs: SessionTimeConfig[] = [
+  ...sessionTimeConfigs,
+  {
+    label: 'Night',
+    startMinutes: thirdThursdaySessionStartHour * minutesPerHour + sessionStartMinute,
+    endMinutes: thirdThursdaySessionStartHour * minutesPerHour + sessionStartMinute + sessionDurationMinutes
+  }
+]
+
 const weekdayIndexMap: Record<Weekday, number> = {
   MONDAY: 1,
   TUESDAY: 2,
@@ -71,12 +90,30 @@ const weekdayIndexMap: Record<Weekday, number> = {
   SUNDAY: 0
 }
 
-const totalSessionSlots = sessionDaysPerWeek * sessionsPerDay * playersPerSession
-const seedGeneratedUserCount = totalSessionSlots - protectedUserCount
+const buildSessionTemplates = (): SessionTemplateConfig[] =>
+  seedWeekdays.flatMap((weekday) => {
+    const weekdaySessionTimes = weekday === thursdayWeekday ? thursdaySessionTimeConfigs : sessionTimeConfigs
+    return weekdaySessionTimes.map((timeConfig) => ({
+      title: `${weekday} ${timeConfig.label}`,
+      weekday,
+      startTimeMinutes: timeConfig.startMinutes,
+      endTimeMinutes: timeConfig.endMinutes,
+      capacity: playersPerSession
+    }))
+  })
 
-const ensureSeedCounts = () => {
+const getSeedGeneratedUserCount = (sessionTemplates: SessionTemplateConfig[]) =>
+  sessionTemplates.length * playersPerSession - protectedUserCount
+
+const ensureSeedCounts = (sessionTemplates: SessionTemplateConfig[]) => {
+  const seedGeneratedUserCount = getSeedGeneratedUserCount(sessionTemplates)
   if (seedGeneratedUserCount <= 0) {
     throw new Error('Seed user count must be greater than zero after reserving protected user')
+  }
+
+  const thursdayTemplateCount = sessionTemplates.filter((template) => template.weekday === thursdayWeekday).length
+  if (thursdayTemplateCount !== thursdaySessionTemplateCount) {
+    throw new Error(`Seed must define exactly ${String(thursdaySessionTemplateCount)} Thursday sessions`)
   }
 }
 
@@ -85,7 +122,7 @@ const getCurrentWeekStartDate = () => {
   return start
 }
 
-const buildUserData = () =>
+const buildUserData = (seedGeneratedUserCount: number) =>
   Array.from({ length: seedGeneratedUserCount }, (_, index) => {
     const suffix = String(phoneNumberStart + index).padStart(phoneNumberWidth, '0')
     return {
@@ -94,17 +131,6 @@ const buildUserData = () =>
       role: 'PLAYER' as const
     }
   })
-
-const buildSessionTemplates = (): SessionTemplateConfig[] =>
-  seedWeekdays.flatMap((weekday) =>
-    sessionTimeConfigs.map((timeConfig) => ({
-      title: `${weekday} ${timeConfig.label}`,
-      weekday,
-      startTimeMinutes: timeConfig.startMinutes,
-      endTimeMinutes: timeConfig.endMinutes,
-      capacity: playersPerSession
-    }))
-  )
 
 const buildLeagueRules = (leagueId: string) => {
   const rules: LeagueRuleSeed[] = [
@@ -240,7 +266,8 @@ const ensureProtectedUser = async () => {
 }
 
 const seedLeague = async () => {
-  ensureSeedCounts()
+  const sessionTemplates = buildSessionTemplates()
+  ensureSeedCounts(sessionTemplates)
   await clearSeedData()
 
   const baseWeekStart = getCurrentWeekStartDate()
@@ -281,7 +308,7 @@ const seedLeague = async () => {
   }
 
   const protectedUser = await ensureProtectedUser()
-  const userData = buildUserData()
+  const userData = buildUserData(getSeedGeneratedUserCount(sessionTemplates))
   await prisma.user.createMany({ data: userData })
   const seedUsers = await prisma.user.findMany({
     where: { phoneNumber: { startsWith: seedPhonePrefix } },
@@ -289,7 +316,6 @@ const seedLeague = async () => {
   })
   const users = [protectedUser, ...seedUsers]
 
-  const sessionTemplates = buildSessionTemplates()
   const sessions = await Promise.all(
     sessionTemplates.map((template) =>
       prisma.session.create({
@@ -346,6 +372,40 @@ const seedLeague = async () => {
         endsAt: occurrence.endsAt
       })
     )
+  )
+
+  const targetThursdayDateParts = shiftDateByDays(baseWeekStartParts, weekdayIndexMap.THURSDAY - weekdayIndexMap.MONDAY)
+  const expectedTargetThursdayOccurrenceCount = sessionTemplates.filter(
+    (template) => template.weekday === thursdayWeekday
+  ).length
+  const sessionsById = new Map(sessions.map((session) => [session.id, session] as const))
+  const targetThursdayOccurrenceCount = occurrences.filter((occurrence) => {
+    const session = sessionsById.get(occurrence.sessionId)
+    if (session?.weekday !== thursdayWeekday) {
+      return false
+    }
+
+    const occurrenceDateParts = getEasternDateParts(occurrence.startsAt)
+    return (
+      occurrenceDateParts.year === targetThursdayDateParts.year &&
+      occurrenceDateParts.month === targetThursdayDateParts.month &&
+      occurrenceDateParts.day === targetThursdayDateParts.day
+    )
+  }).length
+
+  if (targetThursdayOccurrenceCount !== expectedTargetThursdayOccurrenceCount) {
+    throw new Error(
+      `Expected ${String(expectedTargetThursdayOccurrenceCount)} Thursday occurrences for ${String(targetThursdayDateParts.month).padStart(dateSegmentWidth, zeroPadCharacter)}${monthDaySeparator}${String(targetThursdayDateParts.day).padStart(dateSegmentWidth, zeroPadCharacter)}, found ${String(targetThursdayOccurrenceCount)}`
+    )
+  }
+
+  logger.info(
+    {
+      targetThursdayDate: `${String(targetThursdayDateParts.month).padStart(dateSegmentWidth, zeroPadCharacter)}${monthDaySeparator}${String(targetThursdayDateParts.day).padStart(dateSegmentWidth, zeroPadCharacter)}`,
+      expectedCount: expectedTargetThursdayOccurrenceCount,
+      occurrenceCount: targetThursdayOccurrenceCount
+    },
+    'Validated Thursday occurrences for current Eastern week'
   )
 
   if (occurrences.length > 0) {
