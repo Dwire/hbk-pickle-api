@@ -63,6 +63,44 @@ worker-notifications:
 worker-sub-selection:
 	pnpm worker:sub-selection
 
+# Run both workers and repeatedly execute scheduler ticks in one terminal.
+# Parameters: `tick_seconds` (default: 30).
+
+jobs-watch tick_seconds="30":
+	#!/usr/bin/env bash
+	set -euo pipefail
+
+	tick_seconds="{{tick_seconds}}"
+
+	run_with_prefix() {
+		local prefix="$1"
+		shift
+		"$@" 2>&1 | sed -u "s/^/[${prefix}] /"
+	}
+
+	cleanup() {
+		kill "${notification_pid}" "${sub_selection_pid}" "${ticker_pid}" 2>/dev/null || true
+	}
+
+	trap cleanup EXIT INT TERM
+
+	run_with_prefix "worker-notifications" just worker-notifications &
+	notification_pid=$!
+
+	run_with_prefix "worker-sub-selection" just worker-sub-selection &
+	sub_selection_pid=$!
+
+	(
+		while true; do
+			printf '[scheduler-tick] Running tick at %s\n' "$(date '+%Y-%m-%d %H:%M:%S')"
+			just scheduler-tick 2>&1 | sed -u 's/^/[scheduler-tick] /'
+			sleep "$tick_seconds"
+		done
+	) &
+	ticker_pid=$!
+
+	wait "$notification_pid" "$sub_selection_pid" "$ticker_pid"
+
 # Run Prisma migrations in dev mode.
 
 migrate-dev:

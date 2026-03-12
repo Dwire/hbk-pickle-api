@@ -16,6 +16,7 @@ type SubSelectionQueuePayload = {
 
 const subSelectionJobName = 'sub-selection'
 const subSelectionJobIdPrefix = 'sub-selection'
+const subSelectionJobIdSeparator = '-'
 const subSelectionJobAttempts = 3
 const subSelectionJobBackoffDelayMs = 1_000
 
@@ -129,6 +130,7 @@ export class RegistrationScheduler {
     })
 
     let queuedCount = 0
+    let skippedExistingCount = 0
 
     for (const occurrence of activeOccurrences) {
       const { registrationCloseAt } = this.sessionService.calculateRegistrationWindow(occurrence.startsAt)
@@ -137,7 +139,13 @@ export class RegistrationScheduler {
         continue
       }
 
-      const jobId = `${subSelectionJobIdPrefix}:${occurrence.id}`
+      const jobId = `${subSelectionJobIdPrefix}${subSelectionJobIdSeparator}${occurrence.id}`
+      const existingJob = await subSelectionQueue.getJob(jobId)
+
+      if (existingJob) {
+        skippedExistingCount += 1
+        continue
+      }
 
       await subSelectionQueue.add(
         subSelectionJobName,
@@ -157,6 +165,6 @@ export class RegistrationScheduler {
       queuedCount += 1
     }
 
-    logger.info({ queuedCount }, 'Queued sub selection jobs')
+    logger.info({ queuedCount, skippedExistingCount }, 'Queued sub selection jobs')
   }
 }

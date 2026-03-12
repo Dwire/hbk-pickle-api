@@ -23,5 +23,6 @@
 
 - Device tokens stored for users.
 - Scheduler tick enqueues one sub-selection job per eligible occurrence (registration closed and occurrence not ended).
+- Scheduler tick skips enqueueing when an occurrence already has an in-flight sub-selection job id, preventing duplicate-job enqueue failures in repeated ticks.
 - Sub-selection worker revalidates eligibility, runs selection, and queues `SUB_SELECTED` for newly selected users and `SUB_STATUS_CHANGED` for users who are no longer selected.
 - Notifications worker delivers queued push jobs via FCM.

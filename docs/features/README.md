@@ -11,4 +11,5 @@
 - seed-data.md: Local seed data generation
 - utc-time.md: UTC-only API contract and Eastern business-rule conversions
 - dev-debugging.md: Local backend debugging workflow with Node inspector
+- jobs-watch.md: Local single-terminal orchestration for workers + scheduler ticker
 - scheduler: registrationScheduler.ts and registrationTick.ts handle queued reminders
