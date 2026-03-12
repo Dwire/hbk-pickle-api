@@ -89,5 +89,7 @@ Mutations (auth requires Twilio in production; stubbed locally).
 
 - `just jobs-watch`: Starts notification worker, sub-selection worker, and reruns `scheduler-tick` every 30 seconds in a single terminal.
 - `just jobs-watch 10`: Same flow but ticks every 10 seconds.
+- `jobs-watch` exits as soon as any worker/ticker child process exits, returns that child status, and stops the remaining child processes.
+- On Ctrl+C/TERM, `jobs-watch` performs a safe cleanup of child processes without unbound-variable failures.
 - `jobs-watch` reuses existing `just` commands so it runs through the same `mise` toolchain and dotenv setup as other recipes.
 - Use `just typecheck` separately when you want a full static type pass.

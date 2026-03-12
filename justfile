@@ -71,6 +71,10 @@ jobs-watch tick_seconds="30":
 	set -euo pipefail
 
 	tick_seconds="{{tick_seconds}}"
+	notification_pid=""
+	sub_selection_pid=""
+	ticker_pid=""
+	exited_process=""
 
 	run_with_prefix() {
 		local prefix="$1"
@@ -79,10 +83,63 @@ jobs-watch tick_seconds="30":
 	}
 
 	cleanup() {
-		kill "${notification_pid}" "${sub_selection_pid}" "${ticker_pid}" 2>/dev/null || true
+		for pid in "${notification_pid:-}" "${sub_selection_pid:-}" "${ticker_pid:-}"; do
+			if [[ -z "${pid}" ]]; then
+				continue
+			fi
+
+			if kill -0 "${pid}" 2>/dev/null; then
+				kill "${pid}" 2>/dev/null || true
+			fi
+
+			wait "${pid}" 2>/dev/null || true
+		done
 	}
 
-	trap cleanup EXIT INT TERM
+	handle_interrupt() {
+		exit 130
+	}
+
+	handle_terminate() {
+		exit 143
+	}
+
+	wait_for_first_exit() {
+		while true; do
+			if [[ -n "${notification_pid:-}" ]] && ! kill -0 "${notification_pid}" 2>/dev/null; then
+				exited_process="worker-notifications"
+				if wait "${notification_pid}" 2>/dev/null; then
+					return 0
+				else
+					return $?
+				fi
+			fi
+
+			if [[ -n "${sub_selection_pid:-}" ]] && ! kill -0 "${sub_selection_pid}" 2>/dev/null; then
+				exited_process="worker-sub-selection"
+				if wait "${sub_selection_pid}" 2>/dev/null; then
+					return 0
+				else
+					return $?
+				fi
+			fi
+
+			if [[ -n "${ticker_pid:-}" ]] && ! kill -0 "${ticker_pid}" 2>/dev/null; then
+				exited_process="scheduler-tick-loop"
+				if wait "${ticker_pid}" 2>/dev/null; then
+					return 0
+				else
+					return $?
+				fi
+			fi
+
+			sleep 1
+		done
+	}
+
+	trap cleanup EXIT
+	trap handle_interrupt INT
+	trap handle_terminate TERM
 
 	run_with_prefix "worker-notifications" just worker-notifications &
 	notification_pid=$!
@@ -99,7 +156,13 @@ jobs-watch tick_seconds="30":
 	) &
 	ticker_pid=$!
 
-	wait "$notification_pid" "$sub_selection_pid" "$ticker_pid"
+	if wait_for_first_exit; then
+		exit_code=0
+	else
+		exit_code=$?
+	fi
+	printf '[jobs-watch] Exiting after %s stopped (status=%s)\n' "${exited_process}" "${exit_code}"
+	exit "${exit_code}"
 
 # Run Prisma migrations in dev mode.
 
