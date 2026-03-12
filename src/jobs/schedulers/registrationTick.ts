@@ -17,6 +17,6 @@ tick()
     process.exit(0)
   })
   .catch((error) => {
-    logger.error({ error }, 'Scheduler tick failed')
+    logger.error({ err: error }, 'Scheduler tick failed')
     process.exit(1)
   })

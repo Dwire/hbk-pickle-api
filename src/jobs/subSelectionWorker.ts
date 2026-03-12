@@ -24,6 +24,7 @@ const pendingStatus = 'PENDING'
 const subSelectedJobName = 'sub-selected'
 const subStatusChangedJobName = 'sub-status-changed'
 const subNotificationJobIdPrefix = 'sub-notify'
+const subNotificationJobIdSeparator = '-'
 
 const pendingSubSelectionKinds: NotificationKind[] = [subSelectedNotificationKind, subStatusChangedNotificationKind]
 
@@ -75,7 +76,7 @@ const queuePendingSubSelectionNotifications = async (
         deviceTokens
       } as NotificationQueuePayload,
       {
-        jobId: `${subNotificationJobIdPrefix}:${notification.id}`,
+        jobId: `${subNotificationJobIdPrefix}${subNotificationJobIdSeparator}${notification.id}`,
         removeOnComplete: true,
         removeOnFail: true
       }
