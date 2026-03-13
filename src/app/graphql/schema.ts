@@ -246,9 +246,9 @@ const resolvers = {
     league: (_: unknown, __: unknown, context: AppContext) => {
       return context.prisma.league.findFirst()
     },
-    rules: (_: unknown, __: unknown, _context: AppContext) => {
+    rules: (_: unknown, __: unknown, context: AppContext) => {
       const ruleService = new RuleService()
-      return ruleService.listRules()
+      return ruleService.listRules(context.request.userId)
     },
     sessionsWeek: async (_: unknown, __: unknown, context: AppContext) => {
       const sessionService = new SessionService()
