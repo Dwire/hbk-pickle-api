@@ -25,6 +25,7 @@ const subSelectedJobName = 'sub-selected'
 const subStatusChangedJobName = 'sub-status-changed'
 const subNotificationJobIdPrefix = 'sub-notify'
 const subNotificationJobIdSeparator = '-'
+const sessionOccurrenceStatusCanceled = 'CANCELED'
 
 const pendingSubSelectionKinds: NotificationKind[] = [subSelectedNotificationKind, subStatusChangedNotificationKind]
 
@@ -104,6 +105,11 @@ export const subSelectionWorker = new Worker<SubSelectionJobPayload>(
 
     if (!occurrence) {
       logger.warn({ occurrenceId, jobId: job.id }, 'Sub selection skipped: occurrence missing')
+      return
+    }
+
+    if (occurrence.status === sessionOccurrenceStatusCanceled) {
+      logger.info({ occurrenceId, jobId: job.id }, 'Sub selection skipped: occurrence canceled')
       return
     }
 

@@ -19,6 +19,7 @@ const subSelectionJobIdPrefix = 'sub-selection'
 const subSelectionJobIdSeparator = '-'
 const subSelectionJobAttempts = 3
 const subSelectionJobBackoffDelayMs = 1_000
+const sessionOccurrenceStatusActive = 'ACTIVE'
 
 export class RegistrationScheduler {
   private sessionService = new SessionService()
@@ -26,6 +27,7 @@ export class RegistrationScheduler {
   public async queueRegistrationCloseWarnings(now: Date): Promise<void> {
     const upcoming = await prisma.sessionOccurrence.findMany({
       where: {
+        status: sessionOccurrenceStatusActive,
         startsAt: { gte: now }
       }
     })
@@ -77,6 +79,7 @@ export class RegistrationScheduler {
   public async queueSessionStartWarnings(now: Date): Promise<void> {
     const upcoming = await prisma.sessionOccurrence.findMany({
       where: {
+        status: sessionOccurrenceStatusActive,
         startsAt: { gte: now }
       }
     })
@@ -125,6 +128,7 @@ export class RegistrationScheduler {
   public async queueSubSelection(now: Date): Promise<void> {
     const activeOccurrences = await prisma.sessionOccurrence.findMany({
       where: {
+        status: sessionOccurrenceStatusActive,
         endsAt: { gt: now }
       }
     })

@@ -1,5 +1,6 @@
-import type { RegistrationStatus, SubSignupStatus, Weekday } from '../../generated/prisma/client.js'
+import type { NotificationKind, RegistrationStatus, SessionOccurrenceStatus, SubSignupStatus, Weekday } from '../../generated/prisma/client.js'
 import type { SessionOccurrenceGetPayload } from '../../generated/prisma/models/SessionOccurrence.js'
+import { notificationQueue } from '../../integrations/bull/queue.js'
 import { prisma } from '../../shared/prisma.js'
 import { logger } from '../../shared/logger.js'
 import { registrationCloseHour, registrationOpenHour, sessionCapacityDefault } from '../../shared/constants.js'
@@ -28,6 +29,18 @@ const logLoadedUserSubSignupStatuses = 'Loaded user sub signup statuses'
 const logFilteredUserSubSignupStatuses = 'Filtered user sub signup statuses to summary statuses'
 const logLoadedSummarySubSignupCounts = 'Loaded summary sub signup counts'
 const logLoadedAttendingRegistrationCounts = 'Loaded attending registration counts'
+const logCanceledSessionOccurrence = 'Canceled session occurrence'
+const logSessionCancellationNotificationsQueued = 'Queued session cancellation notifications'
+const localeEnUs = 'en-US'
+const sessionCancellationTimeZoneLabel = 'ET'
+const sessionCanceledNotificationTitle = 'Session canceled'
+const sessionCanceledNotificationKind: NotificationKind = 'SESSION_CANCELED'
+const notificationChannelPush = 'PUSH'
+const notificationStatusPending = 'PENDING'
+const sessionCanceledJobName = 'session-canceled'
+const sessionCanceledJobIdPrefix = 'session-canceled'
+const sessionCanceledJobIdSeparator = '-'
+const sessionOccurrenceStatusCanceled: SessionOccurrenceStatus = 'CANCELED'
 const registrationStatusAttending: RegistrationStatus = 'ATTENDING'
 const subSignupStatusActive: SubSignupStatus = 'ACTIVE'
 const subSignupStatusSelected: SubSignupStatus = 'SELECTED'
@@ -52,6 +65,7 @@ export type SessionDisplayState = 'PAST' | 'LIVE' | 'UPCOMING'
 type SessionOccurrenceSummary = {
   id: string
   sessionId: string
+  occurrenceStatus: SessionOccurrenceStatus
   title: string
   weekday: Weekday
   startTimeMinutes: number
@@ -108,6 +122,23 @@ type OccurrenceWithSession = SessionOccurrenceGetPayload<{
     _count: { select: { registrations: true; subSignups: true } }
   }
 }>
+
+const sessionCancellationTimeFormat = new Intl.DateTimeFormat(localeEnUs, {
+  timeZone: easternTimeZone,
+  weekday: 'short',
+  month: 'short',
+  day: 'numeric',
+  hour: 'numeric',
+  minute: '2-digit'
+})
+
+const formatSessionCancellationDate = (startsAt: Date): string =>
+  `${sessionCancellationTimeFormat.format(startsAt)} ${sessionCancellationTimeZoneLabel}`
+
+const buildSessionCanceledNotificationBody = (sessionTitle: string, startsAt: Date): string => {
+  const formattedDate = formatSessionCancellationDate(startsAt)
+  return `${sessionTitle} on ${formattedDate} has been canceled.`
+}
 
 const calculateLiveOpensAt = (startsAt: Date): Date => {
   const startsAtParts = getEasternDateTimeParts(startsAt)
@@ -517,6 +548,134 @@ export class SessionService {
     return this.getOccurrenceSummary(occurrence.id)
   }
 
+  public async cancelSessionOccurrence(occurrenceId: string): Promise<SessionOccurrenceSummary> {
+    const occurrence = await prisma.sessionOccurrence.findUnique({
+      where: { id: occurrenceId },
+      include: { session: true }
+    })
+
+    if (!occurrence) {
+      throw new Error('Session occurrence missing')
+    }
+
+    const canceledOccurrence =
+      occurrence.status === sessionOccurrenceStatusCanceled
+        ? occurrence
+        : await prisma.sessionOccurrence.update({
+            where: { id: occurrenceId },
+            data: { status: sessionOccurrenceStatusCanceled },
+            include: { session: true }
+          })
+
+    if (occurrence.status !== sessionOccurrenceStatusCanceled) {
+      logger.info({ occurrenceId, sessionId: canceledOccurrence.sessionId }, logCanceledSessionOccurrence)
+    }
+
+    const assignments = await prisma.slotAssignment.findMany({
+      where: { sessionId: canceledOccurrence.sessionId },
+      select: { userId: true }
+    })
+    const assignedUserIds = Array.from(new Set(assignments.map((assignment) => assignment.userId)))
+    if (assignedUserIds.length === 0) {
+      return this.getOccurrenceSummary(occurrenceId)
+    }
+
+    const existingNotifications = await prisma.notification.findMany({
+      where: {
+        occurrenceId,
+        userId: { in: assignedUserIds },
+        kind: sessionCanceledNotificationKind
+      },
+      select: { userId: true }
+    })
+    const existingNotificationUserIds = new Set(existingNotifications.map((notification) => notification.userId))
+    const usersWithoutCancellationNotification = assignedUserIds.filter((userId) => !existingNotificationUserIds.has(userId))
+    if (usersWithoutCancellationNotification.length > 0) {
+      const notificationBody = buildSessionCanceledNotificationBody(canceledOccurrence.session.title, canceledOccurrence.startsAt)
+      await prisma.notification.createMany({
+        data: usersWithoutCancellationNotification.map((userId) => ({
+          userId,
+          occurrenceId,
+          title: sessionCanceledNotificationTitle,
+          body: notificationBody,
+          channel: notificationChannelPush,
+          status: notificationStatusPending,
+          kind: sessionCanceledNotificationKind,
+          payload: { sessionId: canceledOccurrence.sessionId }
+        }))
+      })
+    }
+
+    const pendingNotifications = await prisma.notification.findMany({
+      where: {
+        occurrenceId,
+        userId: { in: assignedUserIds },
+        kind: sessionCanceledNotificationKind,
+        status: notificationStatusPending
+      },
+      select: { id: true, userId: true }
+    })
+
+    if (pendingNotifications.length === 0) {
+      return this.getOccurrenceSummary(occurrenceId)
+    }
+
+    const devices = await prisma.userDevice.findMany({
+      where: { userId: { in: assignedUserIds } },
+      select: { userId: true, token: true }
+    })
+    const deviceTokensByUserId = new Map<string, string[]>()
+    for (const device of devices) {
+      const existingTokens = deviceTokensByUserId.get(device.userId) ?? []
+      existingTokens.push(device.token)
+      deviceTokensByUserId.set(device.userId, existingTokens)
+    }
+
+    let queuedCount = 0
+    let skippedExistingJobCount = 0
+    for (const notification of pendingNotifications) {
+      const deviceTokens = deviceTokensByUserId.get(notification.userId) ?? []
+      if (deviceTokens.length === 0) {
+        continue
+      }
+
+      const jobId = `${sessionCanceledJobIdPrefix}${sessionCanceledJobIdSeparator}${notification.id}`
+      const existingJob = await notificationQueue.getJob(jobId)
+
+      if (existingJob) {
+        skippedExistingJobCount += 1
+        continue
+      }
+
+      await notificationQueue.add(
+        sessionCanceledJobName,
+        {
+          notificationId: notification.id,
+          deviceTokens
+        },
+        {
+          jobId,
+          removeOnComplete: true,
+          removeOnFail: true
+        }
+      )
+      queuedCount += 1
+    }
+
+    logger.info(
+      {
+        occurrenceId,
+        assignedCount: assignedUserIds.length,
+        pendingNotificationCount: pendingNotifications.length,
+        createdNotificationCount: usersWithoutCancellationNotification.length,
+        skippedExistingJobCount,
+        queuedCount
+      },
+      logSessionCancellationNotificationsQueued
+    )
+    return this.getOccurrenceSummary(occurrenceId)
+  }
+
   public async getOccurrenceSummary(occurrenceId: string): Promise<SessionOccurrenceSummary> {
     const occurrence = await prisma.sessionOccurrence.findUnique({
       where: { id: occurrenceId },
@@ -702,6 +861,7 @@ export class SessionService {
     return {
       id: occurrence.id,
       sessionId: occurrence.sessionId,
+      occurrenceStatus: occurrence.status,
       title: occurrence.session.title,
       weekday: occurrence.session.weekday,
       startTimeMinutes: occurrence.session.startTimeMinutes,

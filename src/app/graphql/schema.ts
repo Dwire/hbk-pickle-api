@@ -89,6 +89,11 @@ const typeDefs = `#graphql
     UPCOMING
   }
 
+  enum SessionOccurrenceStatus {
+    ACTIVE
+    CANCELED
+  }
+
   enum Weekday {
     MONDAY
     TUESDAY
@@ -135,6 +140,7 @@ const typeDefs = `#graphql
   type Session {
     id: ID!
     sessionId: ID!
+    occurrenceStatus: SessionOccurrenceStatus!
     title: String!
     weekday: Weekday!
     startTimeMinutes: Int!
@@ -228,6 +234,7 @@ const typeDefs = `#graphql
 
     adminCreateSession(title: String!, weekday: Weekday!, startTimeMinutes: Int!, endTimeMinutes: Int!, capacity: Int): Session!
     adminCreateSessionOccurrence(sessionId: ID!, startsAt: DateTime!, endsAt: DateTime!): Session!
+    adminCancelSessionOccurrence(occurrenceId: ID!): Session!
     adminAssignPlayer(sessionId: ID!, userId: ID!): Boolean!
     adminUpsertRule(title: String!, body: String!, order: Int!): LeagueRule!
   }
@@ -331,6 +338,10 @@ const resolvers = {
     ) => {
       const service = new SessionService()
       return service.createSessionOccurrence(args.sessionId, args.startsAt, args.endsAt)
+    },
+    adminCancelSessionOccurrence: async (_: unknown, args: { occurrenceId: string }) => {
+      const service = new SessionService()
+      return service.cancelSessionOccurrence(args.occurrenceId)
     },
     adminAssignPlayer: async (_: unknown, args: { sessionId: string; userId: string }, context: AppContext) => {
       const league = await context.prisma.league.findFirst()

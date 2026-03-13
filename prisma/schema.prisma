@@ -27,6 +27,11 @@ enum SubSignupStatus {
   REPLACED
 }
 
+enum SessionOccurrenceStatus {
+  ACTIVE
+  CANCELED
+}
+
 enum NotificationStatus {
   PENDING
   SENT
@@ -38,6 +43,7 @@ enum NotificationKind {
   SESSION_START_WARNING
   SUB_SELECTED
   SUB_STATUS_CHANGED
+  SESSION_CANCELED
 }
 
 enum NotificationChannel {
@@ -124,6 +130,7 @@ model SessionOccurrence {
   sessionId  String
   startsAt   DateTime
   endsAt     DateTime
+  status     SessionOccurrenceStatus @default(ACTIVE)
   createdAt  DateTime @default(now())
   updatedAt  DateTime @updatedAt
   session    Session  @relation(fields: [sessionId], references: [id])

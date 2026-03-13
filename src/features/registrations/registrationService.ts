@@ -3,6 +3,8 @@ import { logger } from '../../shared/logger.js'
 import { SessionService } from '../sessions/sessionService.js'
 import { getEasternDayRangeUtc } from '../../shared/time.js'
 
+const occurrenceStatusCanceled = 'CANCELED'
+
 /**
  * RegistrationService
  * - Upserts attendance registrations for sessions.
@@ -18,6 +20,11 @@ export class RegistrationService {
 
     if (!occurrence) {
       throw new Error('Session occurrence missing')
+    }
+
+    if (occurrence.status === occurrenceStatusCanceled) {
+      logger.warn({ occurrenceId, userId }, 'Registration attempt for canceled occurrence')
+      throw new Error('Session occurrence canceled')
     }
 
     const sessionService = new SessionService()
