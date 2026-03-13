@@ -3,6 +3,7 @@
 - auth.md: Phone auth and JWT issuance
 - display-name.md: Authenticated display name updates
 - sessions.md: Session listing and admin session creation
+- admin-management.md: Admin-only CRUD for leagues/sessions/occurrences/slot assignments
 - registrations.md: Attendance registration
 - sub-signups.md: Sub signup logic
 - profile-stats.md: Profile stats aggregation for the profile page

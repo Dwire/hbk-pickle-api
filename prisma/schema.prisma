@@ -14,6 +14,18 @@ enum UserRole {
   ADMIN
 }
 
+enum LeagueStatus {
+  DRAFT
+  UPCOMING
+  ACTIVE
+  ARCHIVED
+}
+
+enum SessionStatus {
+  ACTIVE
+  ARCHIVED
+}
+
 enum RegistrationStatus {
   ATTENDING
   DECLINED
@@ -64,6 +76,7 @@ model User {
   id             String   @id @default(uuid())
   phoneNumber    String   @unique
   displayName    String?
+  isOnApp        Boolean  @default(false)
   role           UserRole @default(PLAYER)
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
@@ -86,7 +99,7 @@ model UserDevice {
 model League {
   id          String   @id @default(uuid())
   name        String
-  isActive    Boolean  @default(true)
+  status      LeagueStatus @default(DRAFT)
   startDate   DateTime?
   endDate     DateTime?
   timeZone    String?
@@ -95,6 +108,8 @@ model League {
   rules       LeagueRule[]
   sessions    Session[]
   assignments SlotAssignment[]
+
+  @@index([status])
 }
 
 model LeagueRule {
@@ -113,6 +128,7 @@ model LeagueRule {
 model Session {
   id          String   @id @default(uuid())
   leagueId    String
+  status      SessionStatus @default(ACTIVE)
   title       String
   weekday     Weekday
   startTimeMinutes Int
@@ -123,6 +139,8 @@ model Session {
   league      League   @relation(fields: [leagueId], references: [id])
   occurrences SessionOccurrence[]
   assignments SlotAssignment[]
+
+  @@index([status])
 }
 
 model SessionOccurrence {

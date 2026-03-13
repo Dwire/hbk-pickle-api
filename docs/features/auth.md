@@ -8,6 +8,7 @@
 
 - Request phone verification via Twilio Verify.
 - Verify SMS code and issue JWT token.
+- Normalize phone numbers to E.164 before verification and persistence.
 
 ## Key Files
 
@@ -17,6 +18,7 @@
 
 ## Data Flow
 
-- Client requests verification -> Twilio Verify sends code.
-- Client submits code -> service validates -> user upsert -> JWT issued.
+- Client requests verification -> phone is normalized to E.164 -> Twilio Verify sends code.
+- Client submits code -> phone is normalized to E.164 -> service validates -> user upsert -> JWT issued.
+- Successful verification marks the user as `isOnApp = true`.
 - Request context decodes bearer tokens to supply userId for authenticated resolvers.

@@ -1,4 +1,4 @@
-import type { RegistrationStatus, SubSignupStatus, Weekday } from '../generated/prisma/client.js'
+import type { LeagueStatus, RegistrationStatus, SubSignupStatus, Weekday } from '../generated/prisma/client.js'
 import { logger } from '../shared/logger.js'
 import { prisma } from '../shared/prisma.js'
 import {
@@ -65,7 +65,7 @@ type LeagueRuleSeed = {
 
 type LeagueSeedConfig = {
   name: string
-  isActive: boolean
+  status: LeagueStatus
   startDateParts: DateParts
 }
 
@@ -159,7 +159,7 @@ const buildLeagueSeedConfigs = (currentWeekStartDateParts: DateParts): LeagueSee
 
     return {
       name: isCurrentLeague ? `${seedLeagueNamePrefix} Current` : `${seedLeagueNamePrefix} Past ${String(leagueIndex + 1)}`,
-      isActive: isCurrentLeague,
+      status: isCurrentLeague ? 'ACTIVE' : 'ARCHIVED',
       startDateParts
     }
   })
@@ -170,6 +170,7 @@ const buildUserData = (seedGeneratedUserCount: number) =>
     return {
       phoneNumber: `${seedPhonePrefix}${suffix}`,
       displayName: `${seedUserDisplayNamePrefix} ${String(index + 1).padStart(2, '0')}`,
+      isOnApp: true,
       role: 'PLAYER' as const
     }
   })
@@ -336,6 +337,7 @@ const ensureProtectedUser = async () => {
       id: protectedUserId,
       phoneNumber: protectedUserPhoneNumber,
       displayName: protectedUserDisplayName,
+      isOnApp: true,
       role: 'PLAYER'
     }
   })
@@ -469,7 +471,7 @@ const seedLeagues = async () => {
         timeZone: seedLeagueTimeZone,
         startDate: toEasternMidnightUtc(leagueConfig.startDateParts),
         endDate: toEasternMidnightUtc(leagueEndDateParts),
-        isActive: leagueConfig.isActive
+        status: leagueConfig.status
       }
     })
 
@@ -536,7 +538,7 @@ const seedLeagues = async () => {
       {
         leagueId: league.id,
         leagueName: league.name,
-        isActive: league.isActive,
+        leagueStatus: league.status,
         sessions: sessions.length,
         occurrences: occurrences.length,
         assignments: assignments.length,

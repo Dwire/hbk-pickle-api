@@ -16,6 +16,11 @@ typecheck:
 lint:
 	pnpm lint
 
+# Run all static checks (typecheck + lint).
+# Parameters: none.
+
+check: typecheck lint
+
 # Format project files with Prettier.
 
 format:

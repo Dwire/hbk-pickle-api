@@ -15,7 +15,7 @@
 
 ## Data Flow
 
-- Resolve current league from slot assignments (prefer active league, otherwise most recent assignment).
+- Resolve current league from slot assignments (prefer `ACTIVE` league status, otherwise most recent assignment).
 - Leagues participated list comes from all leagues tied to slot assignments.
 - Sub signup count includes non-canceled sub signups for `ACTIVE` occurrences in the current league.
 - Sub selected count includes selected sub signups for `ACTIVE` occurrences in the current league.

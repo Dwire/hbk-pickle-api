@@ -3,15 +3,16 @@ import { GraphQLDateTime } from 'graphql-scalars'
 import { Kind } from 'graphql'
 import type { GraphQLScalarType, ValueNode } from 'graphql'
 
+import { AdminManagementService } from '../../features/admin/adminManagementService.js'
 import { AuthService } from '../../features/auth/authService.js'
 import { RegistrationService } from '../../features/registrations/registrationService.js'
 import { RuleService } from '../../features/rules/ruleService.js'
 import { SessionService } from '../../features/sessions/sessionService.js'
 import { SubSignupService } from '../../features/subs/subSignupService.js'
 import { UserService } from '../../features/users/userService.js'
-import { Weekday } from '../../generated/prisma/client.js'
+import type { LeagueStatus, SessionOccurrenceStatus, SessionStatus, Weekday } from '../../generated/prisma/client.js'
 import type { AppContext } from '../context.js'
-import { requireAuth } from '../auth.js'
+import { requireAdmin, requireAuth } from '../auth.js'
 
 const utcDateTimeErrorInvalid = 'DateTime must be a UTC ISO-8601 value with a Z or +00:00 offset'
 
@@ -70,6 +71,18 @@ const typeDefs = `#graphql
     ADMIN
   }
 
+  enum LeagueStatus {
+    DRAFT
+    UPCOMING
+    ACTIVE
+    ARCHIVED
+  }
+
+  enum SessionStatus {
+    ACTIVE
+    ARCHIVED
+  }
+
   enum RegistrationStatus {
     ATTENDING
     DECLINED
@@ -108,6 +121,7 @@ const typeDefs = `#graphql
     id: ID!
     phoneNumber: String!
     displayName: String
+    isOnApp: Boolean!
     role: UserRole!
   }
 
@@ -128,6 +142,10 @@ const typeDefs = `#graphql
   type League {
     id: ID!
     name: String!
+    status: LeagueStatus!
+    startDate: DateTime
+    endDate: DateTime
+    timeZone: String
   }
 
   type LeagueRule {
@@ -212,6 +230,120 @@ const typeDefs = `#graphql
     user: User!
   }
 
+  type AdminLeague {
+    id: ID!
+    name: String!
+    status: LeagueStatus!
+    startDate: DateTime
+    endDate: DateTime
+    timeZone: String
+    createdAt: DateTime!
+    updatedAt: DateTime!
+  }
+
+  type AdminSessionTemplate {
+    id: ID!
+    leagueId: ID!
+    title: String!
+    weekday: Weekday!
+    startTimeMinutes: Int!
+    endTimeMinutes: Int!
+    capacity: Int!
+    status: SessionStatus!
+    createdAt: DateTime!
+    updatedAt: DateTime!
+  }
+
+  type AdminSessionOccurrence {
+    id: ID!
+    sessionId: ID!
+    startsAt: DateTime!
+    endsAt: DateTime!
+    status: SessionOccurrenceStatus!
+    createdAt: DateTime!
+    updatedAt: DateTime!
+  }
+
+  type AdminSlotAssignment {
+    id: ID!
+    leagueId: ID!
+    sessionId: ID!
+    userId: ID!
+    userPhoneNumber: String!
+    isUserOnApp: Boolean!
+    createdAt: DateTime!
+  }
+
+  enum AdminDeleteAction {
+    DELETED
+    CANCELED
+    ARCHIVED
+  }
+
+  type AdminDeleteOutcome {
+    id: ID!
+    action: AdminDeleteAction!
+  }
+
+  input AdminCreateLeagueInput {
+    name: String!
+    status: LeagueStatus
+    startDate: DateTime
+    endDate: DateTime
+    timeZone: String
+  }
+
+  input AdminUpdateLeagueInput {
+    name: String
+    status: LeagueStatus
+    startDate: DateTime
+    endDate: DateTime
+    timeZone: String
+  }
+
+  input AdminCreateSessionInput {
+    leagueId: ID!
+    title: String!
+    weekday: Weekday!
+    startTimeMinutes: Int!
+    endTimeMinutes: Int!
+    capacity: Int
+    status: SessionStatus
+  }
+
+  input AdminUpdateSessionInput {
+    title: String
+    weekday: Weekday
+    startTimeMinutes: Int
+    endTimeMinutes: Int
+    capacity: Int
+    status: SessionStatus
+  }
+
+  input AdminCreateSessionOccurrenceInput {
+    sessionId: ID!
+    startsAt: DateTime!
+    endsAt: DateTime!
+    status: SessionOccurrenceStatus
+  }
+
+  input AdminUpdateSessionOccurrenceInput {
+    startsAt: DateTime
+    endsAt: DateTime
+    status: SessionOccurrenceStatus
+  }
+
+  input AdminCreateSlotAssignmentInput {
+    leagueId: ID!
+    sessionId: ID!
+    phoneNumber: String!
+  }
+
+  input AdminUpdateSlotAssignmentInput {
+    sessionId: ID
+    phoneNumber: String
+  }
+
   type Query {
     me: User
     league: League
@@ -232,10 +364,24 @@ const typeDefs = `#graphql
     signupAsSub(occurrenceId: ID!): SubSignup!
     cancelSubSignup(occurrenceId: ID!): SubSignup!
 
-    adminCreateSession(title: String!, weekday: Weekday!, startTimeMinutes: Int!, endTimeMinutes: Int!, capacity: Int): Session!
-    adminCreateSessionOccurrence(sessionId: ID!, startsAt: DateTime!, endsAt: DateTime!): Session!
-    adminCancelSessionOccurrence(occurrenceId: ID!): Session!
-    adminAssignPlayer(sessionId: ID!, userId: ID!): Boolean!
+    adminCreateLeague(input: AdminCreateLeagueInput!): AdminLeague!
+    adminUpdateLeague(leagueId: ID!, input: AdminUpdateLeagueInput!): AdminLeague!
+    adminDeleteLeague(leagueId: ID!): AdminDeleteOutcome!
+
+    adminCreateSession(input: AdminCreateSessionInput!): AdminSessionTemplate!
+    adminUpdateSession(sessionId: ID!, input: AdminUpdateSessionInput!): AdminSessionTemplate!
+    adminDeleteSession(sessionId: ID!): AdminDeleteOutcome!
+
+    adminCreateSessionOccurrence(input: AdminCreateSessionOccurrenceInput!): AdminSessionOccurrence!
+    adminCreateSessionOccurrences(inputs: [AdminCreateSessionOccurrenceInput!]!): [AdminSessionOccurrence!]!
+    adminUpdateSessionOccurrence(occurrenceId: ID!, input: AdminUpdateSessionOccurrenceInput!): AdminSessionOccurrence!
+    adminDeleteSessionOccurrence(occurrenceId: ID!): AdminDeleteOutcome!
+
+    adminCreateSlotAssignment(input: AdminCreateSlotAssignmentInput!): AdminSlotAssignment!
+    adminCreateSlotAssignments(inputs: [AdminCreateSlotAssignmentInput!]!): [AdminSlotAssignment!]!
+    adminUpdateSlotAssignment(slotAssignmentId: ID!, input: AdminUpdateSlotAssignmentInput!): AdminSlotAssignment!
+    adminDeleteSlotAssignment(slotAssignmentId: ID!): AdminDeleteOutcome!
+
     adminUpsertRule(title: String!, body: String!, order: Int!): LeagueRule!
   }
 `
@@ -246,12 +392,24 @@ const resolvers = {
     registeredUsers: (session: { registeredUsers?: unknown[] | null }) => session.registeredUsers ?? [],
     subUsers: (session: { subUsers?: unknown[] | null }) => session.subUsers ?? []
   },
+  AdminSlotAssignment: {
+    userPhoneNumber: (assignment: { user: { phoneNumber: string } }) => assignment.user.phoneNumber,
+    isUserOnApp: (assignment: { user: { isOnApp: boolean } }) => assignment.user.isOnApp
+  },
   Query: {
     me: (_: unknown, __: unknown, context: AppContext) => {
       return context.request.userId ? context.prisma.user.findUnique({ where: { id: context.request.userId } }) : null
     },
-    league: (_: unknown, __: unknown, context: AppContext) => {
-      return context.prisma.league.findFirst()
+    league: async (_: unknown, __: unknown, context: AppContext) => {
+      return (
+        (await context.prisma.league.findFirst({
+          where: { status: 'ACTIVE' },
+          orderBy: { createdAt: 'desc' }
+        })) ??
+        (await context.prisma.league.findFirst({
+          orderBy: { createdAt: 'asc' }
+        }))
+      )
     },
     rules: (_: unknown, __: unknown, context: AppContext) => {
       const ruleService = new RuleService()
@@ -325,39 +483,180 @@ const resolvers = {
       const service = new SubSignupService()
       return service.cancel(userId, args.occurrenceId)
     },
+    adminCreateLeague: async (
+      _: unknown,
+      args: { input: { name: string; status?: LeagueStatus; startDate?: Date | null; endDate?: Date | null; timeZone?: string | null } },
+      context: AppContext
+    ) => {
+      await requireAdmin(context)
+      const adminService = new AdminManagementService()
+      return adminService.createLeague(args.input)
+    },
+    adminUpdateLeague: async (
+      _: unknown,
+      args: {
+        leagueId: string
+        input: { name?: string; status?: LeagueStatus; startDate?: Date | null; endDate?: Date | null; timeZone?: string | null }
+      },
+      context: AppContext
+    ) => {
+      await requireAdmin(context)
+      const adminService = new AdminManagementService()
+      return adminService.updateLeague(args.leagueId, args.input)
+    },
+    adminDeleteLeague: async (_: unknown, args: { leagueId: string }, context: AppContext) => {
+      await requireAdmin(context)
+      const adminService = new AdminManagementService()
+      return adminService.deleteLeague(args.leagueId)
+    },
     adminCreateSession: async (
       _: unknown,
-      args: { title: string; weekday: Weekday; startTimeMinutes: number; endTimeMinutes: number; capacity?: number }
+      args: {
+        input: {
+          leagueId: string
+          title: string
+          weekday: Weekday
+          startTimeMinutes: number
+          endTimeMinutes: number
+          capacity?: number | null
+          status?: SessionStatus
+        }
+      },
+      context: AppContext
     ) => {
-      const service = new SessionService()
-      return service.createSession(args.title, args.weekday, args.startTimeMinutes, args.endTimeMinutes, args.capacity)
+      await requireAdmin(context)
+      const adminService = new AdminManagementService()
+      return adminService.createSession(args.input)
+    },
+    adminUpdateSession: async (
+      _: unknown,
+      args: {
+        sessionId: string
+        input: {
+          title?: string
+          weekday?: Weekday
+          startTimeMinutes?: number
+          endTimeMinutes?: number
+          capacity?: number | null
+          status?: SessionStatus
+        }
+      },
+      context: AppContext
+    ) => {
+      await requireAdmin(context)
+      const adminService = new AdminManagementService()
+      return adminService.updateSession(args.sessionId, args.input)
+    },
+    adminDeleteSession: async (_: unknown, args: { sessionId: string }, context: AppContext) => {
+      await requireAdmin(context)
+      const adminService = new AdminManagementService()
+      return adminService.deleteSession(args.sessionId)
     },
     adminCreateSessionOccurrence: async (
       _: unknown,
-      args: { sessionId: string; startsAt: Date; endsAt: Date }
+      args: {
+        input: {
+          sessionId: string
+          startsAt: Date
+          endsAt: Date
+          status?: SessionOccurrenceStatus
+        }
+      },
+      context: AppContext
     ) => {
-      const service = new SessionService()
-      return service.createSessionOccurrence(args.sessionId, args.startsAt, args.endsAt)
+      await requireAdmin(context)
+      const adminService = new AdminManagementService()
+      return adminService.createSessionOccurrence(args.input)
     },
-    adminCancelSessionOccurrence: async (_: unknown, args: { occurrenceId: string }) => {
-      const service = new SessionService()
-      return service.cancelSessionOccurrence(args.occurrenceId)
+    adminCreateSessionOccurrences: async (
+      _: unknown,
+      args: {
+        inputs: Array<{
+          sessionId: string
+          startsAt: Date
+          endsAt: Date
+          status?: SessionOccurrenceStatus
+        }>
+      },
+      context: AppContext
+    ) => {
+      await requireAdmin(context)
+      const adminService = new AdminManagementService()
+      return adminService.createSessionOccurrences(args.inputs)
     },
-    adminAssignPlayer: async (_: unknown, args: { sessionId: string; userId: string }, context: AppContext) => {
-      const league = await context.prisma.league.findFirst()
-
-      if (!league) {
-        throw new Error('League missing')
-      }
-
-      await context.prisma.slotAssignment.upsert({
-        where: { leagueId_userId: { leagueId: league.id, userId: args.userId } },
-        create: { userId: args.userId, sessionId: args.sessionId, leagueId: league.id },
-        update: { sessionId: args.sessionId }
-      })
-      return true
+    adminUpdateSessionOccurrence: async (
+      _: unknown,
+      args: {
+        occurrenceId: string
+        input: {
+          startsAt?: Date
+          endsAt?: Date
+          status?: SessionOccurrenceStatus
+        }
+      },
+      context: AppContext
+    ) => {
+      await requireAdmin(context)
+      const adminService = new AdminManagementService()
+      return adminService.updateSessionOccurrence(args.occurrenceId, args.input)
     },
-    adminUpsertRule: async (_: unknown, args: { title: string; body: string; order: number }) => {
+    adminDeleteSessionOccurrence: async (_: unknown, args: { occurrenceId: string }, context: AppContext) => {
+      await requireAdmin(context)
+      const adminService = new AdminManagementService()
+      return adminService.deleteSessionOccurrence(args.occurrenceId)
+    },
+    adminCreateSlotAssignment: async (
+      _: unknown,
+      args: {
+        input: {
+          leagueId: string
+          sessionId: string
+          phoneNumber: string
+        }
+      },
+      context: AppContext
+    ) => {
+      await requireAdmin(context)
+      const adminService = new AdminManagementService()
+      return adminService.createSlotAssignment(args.input)
+    },
+    adminCreateSlotAssignments: async (
+      _: unknown,
+      args: {
+        inputs: Array<{
+          leagueId: string
+          sessionId: string
+          phoneNumber: string
+        }>
+      },
+      context: AppContext
+    ) => {
+      await requireAdmin(context)
+      const adminService = new AdminManagementService()
+      return adminService.createSlotAssignments(args.inputs)
+    },
+    adminUpdateSlotAssignment: async (
+      _: unknown,
+      args: {
+        slotAssignmentId: string
+        input: {
+          sessionId?: string
+          phoneNumber?: string
+        }
+      },
+      context: AppContext
+    ) => {
+      await requireAdmin(context)
+      const adminService = new AdminManagementService()
+      return adminService.updateSlotAssignment(args.slotAssignmentId, args.input)
+    },
+    adminDeleteSlotAssignment: async (_: unknown, args: { slotAssignmentId: string }, context: AppContext) => {
+      await requireAdmin(context)
+      const adminService = new AdminManagementService()
+      return adminService.deleteSlotAssignment(args.slotAssignmentId)
+    },
+    adminUpsertRule: async (_: unknown, args: { title: string; body: string; order: number }, context: AppContext) => {
+      await requireAdmin(context)
       const service = new RuleService()
       return service.upsertRule(args.title, args.body, args.order)
     }

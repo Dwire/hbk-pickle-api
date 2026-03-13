@@ -41,6 +41,7 @@ const sessionCanceledJobName = 'session-canceled'
 const sessionCanceledJobIdPrefix = 'session-canceled'
 const sessionCanceledJobIdSeparator = '-'
 const sessionOccurrenceStatusCanceled: SessionOccurrenceStatus = 'CANCELED'
+const leagueStatusActive = 'ACTIVE'
 const registrationStatusAttending: RegistrationStatus = 'ATTENDING'
 const subSignupStatusActive: SubSignupStatus = 'ACTIVE'
 const subSignupStatusSelected: SubSignupStatus = 'SELECTED'
@@ -833,7 +834,14 @@ export class SessionService {
   }
 
   private async getDefaultLeagueId(): Promise<string> {
-    const league = await prisma.league.findFirst()
+    const league =
+      (await prisma.league.findFirst({
+        where: { status: leagueStatusActive },
+        orderBy: { createdAt: 'desc' }
+      })) ??
+      (await prisma.league.findFirst({
+        orderBy: { createdAt: 'asc' }
+      }))
 
     if (!league) {
       const created = await prisma.league.create({
