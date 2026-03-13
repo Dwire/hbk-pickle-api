@@ -507,12 +507,7 @@ export class AdminManagementService {
       throw new Error(errorStartBeforeEnd)
     }
 
-    if (input.status === occurrenceStatusCanceled) {
-      const sessionService = new SessionService()
-      await sessionService.cancelSessionOccurrence(occurrenceId)
-    }
-
-    return prisma.sessionOccurrence.update({
+    const updatedOccurrence = await prisma.sessionOccurrence.update({
       where: { id: occurrenceId },
       data: {
         startsAt: input.startsAt,
@@ -520,6 +515,13 @@ export class AdminManagementService {
         status: input.status
       }
     })
+
+    if (input.status === occurrenceStatusCanceled) {
+      const sessionService = new SessionService()
+      await sessionService.cancelSessionOccurrence(occurrenceId)
+    }
+
+    return updatedOccurrence
   }
 
   public async deleteSessionOccurrence(occurrenceId: string): Promise<AdminDeleteOutcome> {
