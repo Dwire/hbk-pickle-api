@@ -29,7 +29,7 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - sessionsWeek attendingCount reflects ATTENDING registrations only (canceled/declined excluded)
 - sessionsWeek returns `registeredUsers` and `subUsers` participant objects (`id`, `displayName`, `profileImageUrl`) for ATTENDING registrations and ACTIVE/SELECTED sub signups
 - Admin portal APIs for league/session management
-- Rules page content management
+- Rules page content management scoped to the user's current league (or active league fallback)
 - Notification scheduling and delivery
 - Debuggable backend runtime via `just run-debug` / `just run-debug-brk` (Node inspector + auto-reload)
 - Combined job monitor via `just jobs-watch` (both workers + repeating scheduler tick in one terminal)
