@@ -19,11 +19,16 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - Authenticated users can update their display name via GraphQL
 - Admin guard (`ADMIN` role) for all admin mutations
 - Admin CRUD APIs for leagues, session templates, session occurrences, and slot assignments (single + batch variants where applicable)
+- Admin read APIs for leagues, league detail/rules, occurrence rosters, and player search/filter pagination
+- Admin player management mutations for creating/updating users (`phoneNumber`, `displayName`, `role`, `isOnApp`)
+- Admin direct status control mutations for registrations and sub signups
+- Admin league rules mutations for league-scoped upsert and template-copy workflows
 - Phone-based slot assignment that creates placeholder users (`isOnApp = false`) until first verified login
 - League lifecycle via `LeagueStatus` (`DRAFT`, `UPCOMING`, `ACTIVE`, `ARCHIVED`) with one `ACTIVE` league enforced
 - Session lifecycle via `SessionStatus` (`ACTIVE`, `ARCHIVED`)
 - Weekly (Eastern) session occurrences listing with assignment-aware registration rules, assignment-agnostic sub signup rules, and user status summaries derived from UTC instants
 - Session occurrences have lifecycle status (`ACTIVE`/`CANCELED`, default `ACTIVE`) and `sessionsWeek` exposes `occurrenceStatus` while still returning canceled occurrences
+- Admin occurrence create/update validates that `startsAt`/`endsAt` remain within the parent league `startDate`/`endDate` bounds
 - Admin occurrence delete auto-cancels when participation history exists; otherwise hard-deletes
 - Admin session delete archives when participation history exists; otherwise hard-deletes
 - Admin league delete hard-cascades related sessions/occurrences/assignments/registrations/sub signups/notifications/rules
