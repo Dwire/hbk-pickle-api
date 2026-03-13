@@ -558,17 +558,18 @@ export class SessionService {
       throw new Error('Session occurrence missing')
     }
 
-    if (occurrence.status === sessionOccurrenceStatusCanceled) {
-      return this.getOccurrenceSummary(occurrenceId)
+    const canceledOccurrence =
+      occurrence.status === sessionOccurrenceStatusCanceled
+        ? occurrence
+        : await prisma.sessionOccurrence.update({
+            where: { id: occurrenceId },
+            data: { status: sessionOccurrenceStatusCanceled },
+            include: { session: true }
+          })
+
+    if (occurrence.status !== sessionOccurrenceStatusCanceled) {
+      logger.info({ occurrenceId, sessionId: canceledOccurrence.sessionId }, logCanceledSessionOccurrence)
     }
-
-    const canceledOccurrence = await prisma.sessionOccurrence.update({
-      where: { id: occurrenceId },
-      data: { status: sessionOccurrenceStatusCanceled },
-      include: { session: true }
-    })
-
-    logger.info({ occurrenceId, sessionId: canceledOccurrence.sessionId }, logCanceledSessionOccurrence)
 
     const assignments = await prisma.slotAssignment.findMany({
       where: { sessionId: canceledOccurrence.sessionId },
@@ -588,35 +589,39 @@ export class SessionService {
       select: { userId: true }
     })
     const existingNotificationUserIds = new Set(existingNotifications.map((notification) => notification.userId))
-    const usersToNotify = assignedUserIds.filter((userId) => !existingNotificationUserIds.has(userId))
-    if (usersToNotify.length === 0) {
-      return this.getOccurrenceSummary(occurrenceId)
+    const usersWithoutCancellationNotification = assignedUserIds.filter((userId) => !existingNotificationUserIds.has(userId))
+    if (usersWithoutCancellationNotification.length > 0) {
+      const notificationBody = buildSessionCanceledNotificationBody(canceledOccurrence.session.title, canceledOccurrence.startsAt)
+      await prisma.notification.createMany({
+        data: usersWithoutCancellationNotification.map((userId) => ({
+          userId,
+          occurrenceId,
+          title: sessionCanceledNotificationTitle,
+          body: notificationBody,
+          channel: notificationChannelPush,
+          status: notificationStatusPending,
+          kind: sessionCanceledNotificationKind,
+          payload: { sessionId: canceledOccurrence.sessionId }
+        }))
+      })
     }
 
-    const notificationBody = buildSessionCanceledNotificationBody(canceledOccurrence.session.title, canceledOccurrence.startsAt)
-    await prisma.notification.createMany({
-      data: usersToNotify.map((userId) => ({
-        userId,
-        occurrenceId,
-        title: sessionCanceledNotificationTitle,
-        body: notificationBody,
-        channel: notificationChannelPush,
-        status: notificationStatusPending,
-        kind: sessionCanceledNotificationKind,
-        payload: { sessionId: canceledOccurrence.sessionId }
-      }))
-    })
-
-    const createdNotifications = await prisma.notification.findMany({
+    const pendingNotifications = await prisma.notification.findMany({
       where: {
         occurrenceId,
-        userId: { in: usersToNotify },
-        kind: sessionCanceledNotificationKind
+        userId: { in: assignedUserIds },
+        kind: sessionCanceledNotificationKind,
+        status: notificationStatusPending
       },
       select: { id: true, userId: true }
     })
+
+    if (pendingNotifications.length === 0) {
+      return this.getOccurrenceSummary(occurrenceId)
+    }
+
     const devices = await prisma.userDevice.findMany({
-      where: { userId: { in: usersToNotify } },
+      where: { userId: { in: assignedUserIds } },
       select: { userId: true, token: true }
     })
     const deviceTokensByUserId = new Map<string, string[]>()
@@ -627,9 +632,18 @@ export class SessionService {
     }
 
     let queuedCount = 0
-    for (const notification of createdNotifications) {
+    let skippedExistingJobCount = 0
+    for (const notification of pendingNotifications) {
       const deviceTokens = deviceTokensByUserId.get(notification.userId) ?? []
       if (deviceTokens.length === 0) {
+        continue
+      }
+
+      const jobId = `${sessionCanceledJobIdPrefix}${sessionCanceledJobIdSeparator}${notification.id}`
+      const existingJob = await notificationQueue.getJob(jobId)
+
+      if (existingJob) {
+        skippedExistingJobCount += 1
         continue
       }
 
@@ -640,7 +654,7 @@ export class SessionService {
           deviceTokens
         },
         {
-          jobId: `${sessionCanceledJobIdPrefix}${sessionCanceledJobIdSeparator}${notification.id}`,
+          jobId,
           removeOnComplete: true,
           removeOnFail: true
         }
@@ -652,7 +666,9 @@ export class SessionService {
       {
         occurrenceId,
         assignedCount: assignedUserIds.length,
-        createdNotificationCount: createdNotifications.length,
+        pendingNotificationCount: pendingNotifications.length,
+        createdNotificationCount: usersWithoutCancellationNotification.length,
+        skippedExistingJobCount,
         queuedCount
       },
       logSessionCancellationNotificationsQueued
