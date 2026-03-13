@@ -185,6 +185,12 @@ db-push:
 prisma-generate:
 	pnpm prisma generate
 
+# Open Prisma Studio for local database inspection.
+# Parameters: none.
+
+prisma-studio:
+	pnpm prisma studio
+
 # Seed database with demo league, users, sessions, and assignments.
 # Parameters: none.
 
