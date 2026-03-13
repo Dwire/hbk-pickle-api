@@ -2,6 +2,7 @@ import { prisma } from '../../shared/prisma.js'
 
 const ascendingSortOrder = 'asc'
 const descendingSortOrder = 'desc'
+const leagueStatusActive = 'ACTIVE'
 
 /**
  * RuleService
@@ -12,7 +13,7 @@ export class RuleService {
   private async resolveLeagueIdForRules(userId: string | null): Promise<string | null> {
     if (userId) {
       const activeAssignment = await prisma.slotAssignment.findFirst({
-        where: { userId, league: { isActive: true } },
+        where: { userId, league: { status: leagueStatusActive } },
         orderBy: { createdAt: descendingSortOrder },
         select: { leagueId: true }
       })
@@ -33,7 +34,7 @@ export class RuleService {
     }
 
     const activeLeague = await prisma.league.findFirst({
-      where: { isActive: true },
+      where: { status: leagueStatusActive },
       orderBy: { createdAt: descendingSortOrder },
       select: { id: true }
     })
@@ -65,7 +66,7 @@ export class RuleService {
 
   public async upsertRule(title: string, body: string, order: number) {
     const activeLeague = await prisma.league.findFirst({
-      where: { isActive: true },
+      where: { status: leagueStatusActive },
       orderBy: { createdAt: descendingSortOrder },
       select: { id: true }
     })

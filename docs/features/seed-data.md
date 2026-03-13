@@ -6,9 +6,9 @@
 
 ## Core API
 
-- Seed script clears existing data, preserves a protected user, and creates a two-week league for the current and following week using UTC instants derived from Eastern rules.
+- Seed script clears existing data, preserves a protected user, and creates three leagues (two archived + one active) with UTC instants derived from Eastern rules.
 - League rules, sessions, occurrences, and slot assignments are re-created on each run.
-- Session templates include exactly three Thursday sessions (Early, Late, Night) on every seed run.
+- Session templates include exactly three sessions per configured weekday.
 
 ## Key Files
 
@@ -18,6 +18,6 @@
 ## Data Flow
 
 - Seed wipes all records, excluding the protected user ID, and recreates leagues/rules/sessions/occurrences/assignments.
-- Occurrences target the current Eastern week (Monday start) plus the following week and are stored as UTC instants.
-- Seed validates that the current-week Thursday (Eastern) has three generated occurrences, which aligns with 03/12 for the current seed window.
+- Seed marks generated users as `isOnApp = true` while preserving placeholder-user behavior for admin phone assignments.
+- Occurrences are generated for each league's seeded date range and stored as UTC instants.
 - The protected user is always assigned to a session.

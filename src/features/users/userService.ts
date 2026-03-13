@@ -19,6 +19,7 @@ const subSignupStatusesNotCanceled: SubSignupStatus[] = [
 ]
 const registrationStatusAttending: RegistrationStatus = 'ATTENDING'
 const sessionOccurrenceStatusActive = 'ACTIVE'
+const leagueStatusActive = 'ACTIVE'
 
 type LeagueSummary = {
   id: string
@@ -75,7 +76,7 @@ export class UserService {
       orderBy: { createdAt: 'desc' },
       select: {
         createdAt: true,
-        league: { select: { id: true, name: true, isActive: true } }
+        league: { select: { id: true, name: true, status: true } }
       }
     })
 
@@ -91,7 +92,7 @@ export class UserService {
       }
     })
 
-    const activeAssignment = assignments.find((assignment) => assignment.league.isActive)
+    const activeAssignment = assignments.find((assignment) => assignment.league.status === leagueStatusActive)
     const currentAssignment = activeAssignment ?? assignments[0] ?? null
     const currentLeague = currentAssignment
       ? {
@@ -104,7 +105,7 @@ export class UserService {
       {
         userId,
         currentLeagueId: currentLeague?.id ?? null,
-        currentLeagueActive: currentAssignment?.league.isActive ?? null,
+        currentLeagueStatus: currentAssignment?.league.status ?? null,
         leaguesParticipatedCount: leaguesById.size
       },
       logResolvedProfileStatsCurrentLeague

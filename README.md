@@ -13,13 +13,20 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 
 ## Features Summary
 
-- Phone signup/login and profile basics
+- Phone signup/login and profile basics with E.164 normalization
 - Auth requests log Twilio Verify send/check outcomes for debugging
 - Auth context derives user identity from bearer JWTs for resolvers
 - Authenticated users can update their display name via GraphQL
+- Admin guard (`ADMIN` role) for all admin mutations
+- Admin CRUD APIs for leagues, session templates, session occurrences, and slot assignments (single + batch variants where applicable)
+- Phone-based slot assignment that creates placeholder users (`isOnApp = false`) until first verified login
+- League lifecycle via `LeagueStatus` (`DRAFT`, `UPCOMING`, `ACTIVE`, `ARCHIVED`) with one `ACTIVE` league enforced
+- Session lifecycle via `SessionStatus` (`ACTIVE`, `ARCHIVED`)
 - Weekly (Eastern) session occurrences listing with assignment-aware registration rules, assignment-agnostic sub signup rules, and user status summaries derived from UTC instants
 - Session occurrences have lifecycle status (`ACTIVE`/`CANCELED`, default `ACTIVE`) and `sessionsWeek` exposes `occurrenceStatus` while still returning canceled occurrences
-- Admin mutation `adminCancelSessionOccurrence` cancels an occurrence, preserves existing registration/sub signup records, and queues assigned-user cancellation push notifications
+- Admin occurrence delete auto-cancels when participation history exists; otherwise hard-deletes
+- Admin session delete archives when participation history exists; otherwise hard-deletes
+- Admin league delete hard-cascades related sessions/occurrences/assignments/registrations/sub signups/notifications/rules
 - Profile stats query for current-league participation, sub signup counts, and attendance/missed summaries
 - Profile stats exclude registration/subsignup rows tied to canceled occurrences
 - Session display state (PAST/LIVE/UPCOMING) derived server-side using Eastern wall-clock projections of UTC instants; live window opens 10am ET day before
@@ -33,31 +40,32 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - Sub ordering uses signup queue time (`signedUpAt`); cancel + re-sub places the user at the end of the sub list
 - sessionsWeek attendingCount reflects ATTENDING registrations only (canceled/declined excluded)
 - sessionsWeek returns `registeredUsers` and `subUsers` participant objects (`id`, `displayName`, `profileImageUrl`) for ATTENDING registrations and ACTIVE/SELECTED sub signups
-- Admin portal APIs for league/session management
-- Rules page content management scoped to the user's current league (or active league fallback)
+- Rules page content management scoped to the user's current league (or `ACTIVE` league fallback)
 - Notification scheduling and delivery
 - Debuggable backend runtime via `just run-debug` / `just run-debug-brk` (Node inspector + auto-reload)
 - Combined job monitor via `just jobs-watch` (both workers + repeating scheduler tick in one terminal)
-- Local seed data generation for three 3-week leagues (2 past inactive + 1 current active), 3 sessions per day on Monday/Wednesday/Thursday/Friday, 5-slot assignments per session, and randomized historical registrations/sub signups (preserves protected user)
+- Local seed data generation for three 3-week leagues (2 archived + 1 active), 3 sessions per day on Monday/Wednesday/Thursday/Friday, 5-slot assignments per session, and randomized historical registrations/sub signups (preserves protected user)
 
 ## Folder Structure
 
 - src/app: HTTP server bootstrap and middleware
-- src/features: Feature modules (auth, users, sessions, registrations, subs, rules, notifications)
+- src/features: Feature modules (admin, auth, users, sessions, registrations, subs, rules, notifications)
 - src/integrations: Twilio, Firebase, Redis, BullMQ clients
 - src/jobs: Schedulers and workers
-- src/shared: Logger, config, utils, constants
+- src/shared: Logger, config, phone normalization, time helpers, constants
 - prisma: Schema and migrations
 - docs/features: Feature documentation
 
 ## Key Files
 
 - README.md: Project overview (this file)
-- justfile: Developer commands (install, run, debug, build, workers)
-- prisma/schema.prisma: Database schema (recurring sessions + occurrences)
+- justfile: Developer commands (install, run, checks, debug, build, workers)
+- prisma/schema.prisma: Database schema (league/session lifecycle + recurring occurrences)
 - src/app/server.ts: App entry
 - src/app/graphql/schema.ts: GraphQL schema
+- src/features/admin/adminManagementService.ts: Admin CRUD orchestration and delete semantics
 - src/shared/config.ts: Typed environment config
+- src/shared/phone.ts: E.164 phone normalization utility
 - src/shared/logger.ts: Pino logger wrapper
 - src/scripts/seed.ts: Seed script for local demo data
 - src/jobs/subSelectionWorker.ts: Bull worker for selection recalculation and sub selection notifications
@@ -97,4 +105,4 @@ Mutations (auth requires Twilio in production; stubbed locally).
 - `jobs-watch` exits as soon as any worker/ticker child process exits, returns that child status, and stops the remaining child processes.
 - On Ctrl+C/TERM, `jobs-watch` performs a safe cleanup of child processes without unbound-variable failures.
 - `jobs-watch` reuses existing `just` commands so it runs through the same `mise` toolchain and dotenv setup as other recipes.
-- Use `just typecheck` separately when you want a full static type pass.
+- Use `just check` to run typecheck + lint together.

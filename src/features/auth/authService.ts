@@ -2,6 +2,7 @@ import jwt from 'jsonwebtoken'
 
 import { twilioClient } from '../../integrations/twilio/twilioClient.js'
 import { config } from '../../shared/config.js'
+import { normalizePhoneNumber } from '../../shared/phone.js'
 import { prisma } from '../../shared/prisma.js'
 
 type AuthResult = {
@@ -19,24 +20,31 @@ const jwtExpiresIn = '30d'
  */
 export class AuthService {
   public async requestPhoneVerification(phoneNumber: string): Promise<void> {
+    const normalizedPhoneNumber = normalizePhoneNumber(phoneNumber)
+
     await twilioClient.verify.v2
       .services(config.twilio.verifyServiceSid)
-      .verifications.create({ to: phoneNumber, channel: 'sms' })
+      .verifications.create({ to: normalizedPhoneNumber, channel: 'sms' })
   }
 
   public async verifyPhoneCode(phoneNumber: string, code: string): Promise<AuthResult> {
+    const normalizedPhoneNumber = normalizePhoneNumber(phoneNumber)
+
     const verification = await twilioClient.verify.v2
       .services(config.twilio.verifyServiceSid)
-      .verificationChecks.create({ to: phoneNumber, code })
+      .verificationChecks.create({ to: normalizedPhoneNumber, code })
 
     if (verification.status !== 'approved') {
       throw new Error('Invalid verification code')
     }
 
     const user = await prisma.user.upsert({
-      where: { phoneNumber },
-      create: { phoneNumber },
-      update: {}
+      where: { phoneNumber: normalizedPhoneNumber },
+      create: {
+        phoneNumber: normalizedPhoneNumber,
+        isOnApp: true
+      },
+      update: { isOnApp: true }
     })
 
     const token = jwt.sign({ userId: user.id }, config.auth.jwtSecret, {

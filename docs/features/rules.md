@@ -6,7 +6,7 @@
 
 ## Core API
 
-- List rules for the authenticated user's current league (active assignment first, latest assignment fallback) or the active league when unauthenticated/unassigned.
+- List rules for the authenticated user's current league (`ACTIVE` assignment first, latest assignment fallback) or the `ACTIVE` league when unauthenticated/unassigned.
 - Admin upsert rule by order.
 
 ## Key Files

@@ -9,9 +9,8 @@
 - List session occurrences for the current Eastern week (with registration window details) derived from UTC instants.
 - Session summaries include user-specific registration/sub signup status when authenticated.
 - Session summaries expose `occurrenceStatus` (`ACTIVE`/`CANCELED`) so clients can render canceled sessions differently.
-- Admin create session templates and weekly occurrences.
-- Admin can cancel an occurrence (`adminCancelSessionOccurrence`) without deleting historical registration/sub data.
-- Admin assign players to recurring session slots.
+- Admin create/update/archive session templates and create/update/delete occurrences.
+- Occurrence delete auto-cancels when historical registration/sub data exists.
 
 ## Key Files
 
@@ -23,11 +22,12 @@
 
 - Occurrences are the dated instances used for registration and sub availability.
 - Occurrences have `ACTIVE`/`CANCELED` status; new occurrences default to `ACTIVE`.
+- Session templates have `ACTIVE`/`ARCHIVED` status.
 - Registration windows open 10am ET the day before and close at 7pm ET the day before (computed from UTC instants).
 - Sub signups stay open until the session ends (Eastern rules applied to UTC instants).
 - Assignments gate registration eligibility, while sub signups are assignment-agnostic.
 - Session display state (PAST/LIVE/UPCOMING) compares Eastern wall-clock projections of UTC instants so sessions only go PAST after the listed end time.
-- Session templates are tied to the default league and referenced by assignments.
+- Session templates are league-scoped and referenced by assignments.
 - Canceled occurrences remain visible in `sessionsWeek` and include `occurrenceStatus = CANCELED`.
 - sessionsWeek sub signup status returns ACTIVE or SELECTED records for the current user (canceled/replaced are excluded).
 - Session occurrence summaries report subCount using ACTIVE + SELECTED sub signups (canceled/replaced excluded).
