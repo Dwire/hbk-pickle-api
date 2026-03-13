@@ -6,6 +6,7 @@ import { getEasternDayRangeUtc } from '../../shared/time.js'
 const subSignupStatusActive = 'ACTIVE'
 const subSignupStatusSelected = 'SELECTED'
 const subSignupStatusCanceled = 'CANCELED'
+const occurrenceStatusCanceled = 'CANCELED'
 
 /**
  * SubSignupService
@@ -23,6 +24,11 @@ export class SubSignupService {
 
     if (!occurrence) {
       throw new Error(errorOccurrenceMissing)
+    }
+
+    if (occurrence.status === occurrenceStatusCanceled) {
+      logger.warn({ occurrenceId, userId }, 'Sub signup attempt for canceled occurrence')
+      throw new Error('Session occurrence canceled')
     }
 
     const sessionService = new SessionService()

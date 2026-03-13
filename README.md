@@ -18,10 +18,15 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - Auth context derives user identity from bearer JWTs for resolvers
 - Authenticated users can update their display name via GraphQL
 - Weekly (Eastern) session occurrences listing with assignment-aware registration rules, assignment-agnostic sub signup rules, and user status summaries derived from UTC instants
+- Session occurrences have lifecycle status (`ACTIVE`/`CANCELED`, default `ACTIVE`) and `sessionsWeek` exposes `occurrenceStatus` while still returning canceled occurrences
+- Admin mutation `adminCancelSessionOccurrence` cancels an occurrence, preserves existing registration/sub signup records, and queues assigned-user cancellation push notifications
 - Profile stats query for current-league participation, sub signup counts, and attendance/missed summaries
+- Profile stats exclude registration/subsignup rows tied to canceled occurrences
 - Session display state (PAST/LIVE/UPCOMING) derived server-side using Eastern wall-clock projections of UTC instants; live window opens 10am ET day before
 - Registration windows open 10am ET day before and close at 7pm ET day before; sub signups remain open until the session ends (Eastern rules applied to UTC instants)
+- Register/sub mutations reject attempts for canceled occurrences
 - Scheduler ticks enqueue Bull sub-selection jobs from registration close through occurrence end; sub-selection worker recomputes selection and sends push notifications only for selection state changes
+- Scheduler tick and sub-selection worker process `ACTIVE` occurrences only
 - Scheduler ticks skip enqueueing duplicate in-flight sub-selection job ids so repeated ticks remain stable
 - sessionsWeek sub signup status returns ACTIVE or SELECTED sub signups for the current user
 - sessionsWeek subCount reflects ACTIVE + SELECTED sub signups (canceled/replaced excluded)

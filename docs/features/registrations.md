@@ -17,3 +17,4 @@
 ## Data Flow
 
 - Upsert registration record per occurrence with ATTENDING or CANCELED.
+- Registration attempts are rejected when the target occurrence status is `CANCELED`.

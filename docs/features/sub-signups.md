@@ -19,6 +19,7 @@
 
 - Create or reactivate one sub signup record per occurrence with ACTIVE or CANCELED status transitions.
 - Enforce sub signup window using SessionService.isWithinSubSignupWindow(now, occurrence.endsAt).
+- Sub signup attempts are rejected when the target occurrence status is `CANCELED`.
 - Allow sub signups regardless of assignment; enforce same-day attendance and same-day sub constraints.
 - Store sub queue position with `signedUpAt`; re-signing after cancel resets `signedUpAt` so players move to the end.
 - After registration closes, scheduler ticks enqueue sub-selection jobs through session end so ACTIVE signups can move into SELECTED as the list changes.

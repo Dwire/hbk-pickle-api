@@ -17,7 +17,7 @@
 
 - Resolve current league from slot assignments (prefer active league, otherwise most recent assignment).
 - Leagues participated list comes from all leagues tied to slot assignments.
-- Sub signup count includes all non-canceled sub signups for the current league.
-- Sub selected count includes selected sub signups for the current league.
-- Attendance count includes ATTENDING registrations for the current league.
-- Missed count equals total registrations for the current league minus attendance count.
+- Sub signup count includes non-canceled sub signups for `ACTIVE` occurrences in the current league.
+- Sub selected count includes selected sub signups for `ACTIVE` occurrences in the current league.
+- Attendance count includes ATTENDING registrations for `ACTIVE` occurrences in the current league.
+- Missed count equals total registrations for `ACTIVE` occurrences in the current league minus attendance count.

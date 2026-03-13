@@ -10,7 +10,6 @@ const logResolvedProfileStatsCurrentLeague = 'Resolved current league for profil
 const logComputedProfileStatsCounts = 'Computed profile stats counts'
 const profileStatsZeroCount = 0
 const subSignupStatusActive: SubSignupStatus = 'ACTIVE'
-const subSignupStatusCanceled: SubSignupStatus = 'CANCELED'
 const subSignupStatusSelected: SubSignupStatus = 'SELECTED'
 const subSignupStatusReplaced: SubSignupStatus = 'REPLACED'
 const subSignupStatusesNotCanceled: SubSignupStatus[] = [
@@ -19,6 +18,7 @@ const subSignupStatusesNotCanceled: SubSignupStatus[] = [
   subSignupStatusReplaced
 ]
 const registrationStatusAttending: RegistrationStatus = 'ATTENDING'
+const sessionOccurrenceStatusActive = 'ACTIVE'
 
 type LeagueSummary = {
   id: string
@@ -127,27 +127,27 @@ export class UserService {
         where: {
           userId,
           status: { in: subSignupStatusesNotCanceled },
-          occurrence: { session: { leagueId: currentLeagueId } }
+          occurrence: { status: sessionOccurrenceStatusActive, session: { leagueId: currentLeagueId } }
         }
       }),
       prisma.subSignup.count({
         where: {
           userId,
           status: subSignupStatusSelected,
-          occurrence: { session: { leagueId: currentLeagueId } }
+          occurrence: { status: sessionOccurrenceStatusActive, session: { leagueId: currentLeagueId } }
         }
       }),
       prisma.sessionRegistration.count({
         where: {
           userId,
           status: registrationStatusAttending,
-          occurrence: { session: { leagueId: currentLeagueId } }
+          occurrence: { status: sessionOccurrenceStatusActive, session: { leagueId: currentLeagueId } }
         }
       }),
       prisma.sessionRegistration.count({
         where: {
           userId,
-          occurrence: { session: { leagueId: currentLeagueId } }
+          occurrence: { status: sessionOccurrenceStatusActive, session: { leagueId: currentLeagueId } }
         }
       })
     ])
