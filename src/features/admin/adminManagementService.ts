@@ -1,3 +1,4 @@
+import { Prisma as PrismaClient } from '../../generated/prisma/client.js'
 import type {
   LeagueStatus,
   RegistrationStatus,
@@ -32,6 +33,7 @@ const minutesPerDay = 24 * 60
 const paginationLimitDefault = 25
 const paginationOffsetDefault = 0
 const paginationLimitMax = 100
+const adminLeagueDetailMaxOccurrencesDefault = 250
 const errorLeagueMissing = 'League missing'
 const errorSessionMissing = 'Session missing'
 const errorOccurrenceMissing = 'Session occurrence missing'
@@ -55,6 +57,15 @@ const errorPaginationLimitInvalid =
   'pagination.limit must be an integer between 1 and 100'
 const errorPaginationOffsetInvalid =
   'pagination.offset must be an integer greater than or equal to 0'
+const errorAdminLeagueDetailMaxOccurrencesInvalid =
+  'maxOccurrencesPerSession must be an integer greater than or equal to 1'
+const errorAdminLeagueDetailOccurrenceRangeInvalid =
+  'occurrenceStart must be before or equal to occurrenceEnd'
+
+const subSignupSummaryStatuses: SubSignupStatus[] = [
+  subSignupStatusActive,
+  subSignupStatusSelected
+]
 
 type TransactionClient = Prisma.TransactionClient
 
@@ -177,6 +188,78 @@ export type AdminOccurrenceRoster = {
   subs: AdminOccurrenceRosterEntry[]
 }
 
+export type AdminLeagueDetailInput = {
+  includeArchivedSessions?: boolean | null
+  includeCanceledOccurrences?: boolean | null
+  occurrenceStart?: Date | null
+  occurrenceEnd?: Date | null
+  maxOccurrencesPerSession?: number | null
+}
+
+type NormalizedAdminLeagueDetailInput = {
+  includeArchivedSessions: boolean
+  includeCanceledOccurrences: boolean
+  occurrenceStart: Date | null
+  occurrenceEnd: Date | null
+  maxOccurrencesPerSession: number
+}
+
+type AdminSlotAssignmentWithUser = {
+  id: string
+  leagueId: string
+  sessionId: string
+  userId: string
+  createdAt: Date
+  user: {
+    id: string
+    phoneNumber: string
+    displayName: string | null
+    isOnApp: boolean
+    role: UserRole
+  }
+}
+
+export type AdminLeagueDetailOccurrence = {
+  id: string
+  sessionId: string
+  startsAt: Date
+  endsAt: Date
+  status: SessionOccurrenceStatus
+  createdAt: Date
+  updatedAt: Date
+  attendingCount: number
+  subCount: number
+  openSpots: number
+}
+
+export type AdminLeagueDetailSession = {
+  id: string
+  leagueId: string
+  title: string
+  weekday: Weekday
+  startTimeMinutes: number
+  endTimeMinutes: number
+  capacity: number
+  status: SessionStatus
+  createdAt: Date
+  updatedAt: Date
+  assignmentCount: number
+  occurrenceCount: number
+  assignments: AdminSlotAssignmentWithUser[]
+  occurrences: AdminLeagueDetailOccurrence[]
+  adminLeagueDetailInputKey: string
+}
+
+type RankedOccurrenceRow = {
+  id: string
+  sessionId: string
+  startsAt: Date
+  endsAt: Date
+  status: SessionOccurrenceStatus
+  createdAt: Date
+  updatedAt: Date
+}
+
 const getErrorMessage = (error: unknown): string => {
   if (error instanceof Error) {
     return error.message
@@ -212,6 +295,154 @@ export class AdminManagementService {
     }
 
     return { limit, offset }
+  }
+
+  private normalizeAdminLeagueDetailInput(
+    input: AdminLeagueDetailInput | null | undefined
+  ): NormalizedAdminLeagueDetailInput {
+    const maxOccurrencesPerSession =
+      input?.maxOccurrencesPerSession ?? adminLeagueDetailMaxOccurrencesDefault
+    const isMaxOccurrencesPerSessionValid =
+      Number.isInteger(maxOccurrencesPerSession) && maxOccurrencesPerSession >= 1
+    if (!isMaxOccurrencesPerSessionValid) {
+      throw new Error(errorAdminLeagueDetailMaxOccurrencesInvalid)
+    }
+
+    const occurrenceStart = input?.occurrenceStart ?? null
+    const occurrenceEnd = input?.occurrenceEnd ?? null
+    if (occurrenceStart && occurrenceEnd && occurrenceStart > occurrenceEnd) {
+      throw new Error(errorAdminLeagueDetailOccurrenceRangeInvalid)
+    }
+
+    return {
+      includeArchivedSessions: input?.includeArchivedSessions ?? true,
+      includeCanceledOccurrences: input?.includeCanceledOccurrences ?? true,
+      occurrenceStart,
+      occurrenceEnd,
+      maxOccurrencesPerSession
+    }
+  }
+
+  private buildAdminLeagueDetailInputCacheKey(
+    input: NormalizedAdminLeagueDetailInput
+  ): string {
+    return JSON.stringify({
+      includeArchivedSessions: input.includeArchivedSessions,
+      includeCanceledOccurrences: input.includeCanceledOccurrences,
+      occurrenceStart: input.occurrenceStart?.toISOString() ?? null,
+      occurrenceEnd: input.occurrenceEnd?.toISOString() ?? null,
+      maxOccurrencesPerSession: input.maxOccurrencesPerSession
+    })
+  }
+
+  public getAdminLeagueDetailInputCacheKey(
+    input: AdminLeagueDetailInput | null | undefined
+  ): string {
+    const normalizedInput = this.normalizeAdminLeagueDetailInput(input)
+    return this.buildAdminLeagueDetailInputCacheKey(normalizedInput)
+  }
+
+  private buildOccurrenceWhereBySessionIds(
+    sessionIds: string[],
+    input: NormalizedAdminLeagueDetailInput
+  ): Prisma.SessionOccurrenceWhereInput {
+    const startsAtFilter: Prisma.DateTimeFilter = {}
+    if (input.occurrenceStart) {
+      startsAtFilter.gte = input.occurrenceStart
+    }
+    if (input.occurrenceEnd) {
+      startsAtFilter.lte = input.occurrenceEnd
+    }
+
+    return {
+      sessionId: { in: sessionIds },
+      ...(input.includeCanceledOccurrences
+        ? {}
+        : { status: { not: occurrenceStatusCanceled } }),
+      ...(Object.keys(startsAtFilter).length === 0
+        ? {}
+        : { startsAt: startsAtFilter })
+    }
+  }
+
+  private compareAssignmentsByUser(
+    left: AdminSlotAssignmentWithUser,
+    right: AdminSlotAssignmentWithUser
+  ): number {
+    const leftDisplayName = left.user.displayName?.trim() || null
+    const rightDisplayName = right.user.displayName?.trim() || null
+
+    if (leftDisplayName && rightDisplayName) {
+      const nameCompare = leftDisplayName.localeCompare(rightDisplayName, 'en', {
+        sensitivity: 'base'
+      })
+      if (nameCompare !== 0) {
+        return nameCompare
+      }
+    } else if (leftDisplayName && !rightDisplayName) {
+      return -1
+    } else if (!leftDisplayName && rightDisplayName) {
+      return 1
+    }
+
+    return left.user.phoneNumber.localeCompare(right.user.phoneNumber, 'en', {
+      sensitivity: 'base'
+    })
+  }
+
+  private async loadCappedOccurrencesBySessionIds(
+    sessionIds: string[],
+    input: NormalizedAdminLeagueDetailInput
+  ): Promise<RankedOccurrenceRow[]> {
+    if (sessionIds.length === 0) {
+      return []
+    }
+
+    const sessionIdParams = sessionIds.map(
+      (sessionId) => PrismaClient.sql`${sessionId}`
+    )
+    const canceledFilterSql = input.includeCanceledOccurrences
+      ? PrismaClient.empty
+      : PrismaClient.sql`AND so."status" != ${occurrenceStatusCanceled}`
+    const occurrenceStartFilterSql = input.occurrenceStart
+      ? PrismaClient.sql`AND so."startsAt" >= ${input.occurrenceStart}`
+      : PrismaClient.empty
+    const occurrenceEndFilterSql = input.occurrenceEnd
+      ? PrismaClient.sql`AND so."startsAt" <= ${input.occurrenceEnd}`
+      : PrismaClient.empty
+
+    return prisma.$queryRaw<RankedOccurrenceRow[]>(PrismaClient.sql`
+      WITH ranked_occurrences AS (
+        SELECT
+          so."id",
+          so."sessionId",
+          so."startsAt",
+          so."endsAt",
+          so."status",
+          so."createdAt",
+          so."updatedAt",
+          ROW_NUMBER() OVER (
+            PARTITION BY so."sessionId"
+            ORDER BY so."startsAt" ASC
+          ) AS "occurrenceRank"
+        FROM "SessionOccurrence" so
+        WHERE so."sessionId" IN (${PrismaClient.join(sessionIdParams)})
+          ${canceledFilterSql}
+          ${occurrenceStartFilterSql}
+          ${occurrenceEndFilterSql}
+      )
+      SELECT
+        "id",
+        "sessionId",
+        "startsAt",
+        "endsAt",
+        "status",
+        "createdAt",
+        "updatedAt"
+      FROM ranked_occurrences
+      WHERE "occurrenceRank" <= ${input.maxOccurrencesPerSession}
+      ORDER BY "sessionId" ASC, "startsAt" ASC
+    `)
   }
 
   private validateDateRange(
@@ -385,6 +616,266 @@ export class AdminManagementService {
     return prisma.leagueRule.findMany({
       where: { leagueId },
       orderBy: { order: sortOrderAscending }
+    })
+  }
+
+  public async adminLeagueDetailSessions(
+    leagueId: string,
+    input: AdminLeagueDetailInput | null | undefined
+  ): Promise<AdminLeagueDetailSession[]> {
+    const normalizedInput = this.normalizeAdminLeagueDetailInput(input)
+    const inputKey = this.buildAdminLeagueDetailInputCacheKey(normalizedInput)
+    const sessions = await prisma.session.findMany({
+      where: {
+        leagueId,
+        ...(normalizedInput.includeArchivedSessions
+          ? {}
+          : { status: { not: sessionStatusArchived } })
+      },
+      orderBy: [
+        { weekday: sortOrderAscending },
+        { startTimeMinutes: sortOrderAscending },
+        { title: sortOrderAscending }
+      ]
+    })
+
+    if (sessions.length === 0) {
+      return []
+    }
+
+    const sessionIds = sessions.map((session) => session.id)
+    const occurrenceWhere = this.buildOccurrenceWhereBySessionIds(
+      sessionIds,
+      normalizedInput
+    )
+
+    const [assignments, occurrenceCounts, cappedOccurrences] = await Promise.all([
+      prisma.slotAssignment.findMany({
+        where: { sessionId: { in: sessionIds } },
+        include: {
+          user: {
+            select: {
+              id: true,
+              phoneNumber: true,
+              displayName: true,
+              isOnApp: true,
+              role: true
+            }
+          }
+        }
+      }),
+      prisma.sessionOccurrence.groupBy({
+        by: ['sessionId'],
+        where: occurrenceWhere,
+        _count: { _all: true }
+      }),
+      this.loadCappedOccurrencesBySessionIds(sessionIds, normalizedInput)
+    ])
+
+    const occurrenceIds = cappedOccurrences.map((occurrence) => occurrence.id)
+    const [attendingCounts, subCounts] =
+      occurrenceIds.length === 0
+        ? [[], []]
+        : await Promise.all([
+            prisma.sessionRegistration.groupBy({
+              by: ['occurrenceId'],
+              where: {
+                occurrenceId: { in: occurrenceIds },
+                status: registrationStatusAttending
+              },
+              _count: { _all: true }
+            }),
+            prisma.subSignup.groupBy({
+              by: ['occurrenceId'],
+              where: {
+                occurrenceId: { in: occurrenceIds },
+                status: { in: subSignupSummaryStatuses }
+              },
+              _count: { _all: true }
+            })
+          ])
+
+    const assignmentsBySessionId = new Map<string, AdminSlotAssignmentWithUser[]>()
+    for (const assignment of assignments) {
+      const existingAssignments =
+        assignmentsBySessionId.get(assignment.sessionId) ?? []
+      existingAssignments.push(assignment)
+      assignmentsBySessionId.set(assignment.sessionId, existingAssignments)
+    }
+    for (const assignmentsForSession of assignmentsBySessionId.values()) {
+      assignmentsForSession.sort((left, right) =>
+        this.compareAssignmentsByUser(left, right)
+      )
+    }
+
+    const occurrenceCountBySessionId = new Map<string, number>()
+    for (const occurrenceCount of occurrenceCounts) {
+      occurrenceCountBySessionId.set(
+        occurrenceCount.sessionId,
+        occurrenceCount._count._all
+      )
+    }
+
+    const attendingCountByOccurrenceId = new Map<string, number>()
+    for (const attendingCount of attendingCounts) {
+      attendingCountByOccurrenceId.set(
+        attendingCount.occurrenceId,
+        attendingCount._count._all
+      )
+    }
+
+    const subCountByOccurrenceId = new Map<string, number>()
+    for (const subCount of subCounts) {
+      subCountByOccurrenceId.set(subCount.occurrenceId, subCount._count._all)
+    }
+
+    const sessionCapacityBySessionId = new Map<string, number>(
+      sessions.map((session) => [session.id, session.capacity])
+    )
+    const occurrencesBySessionId = new Map<string, AdminLeagueDetailOccurrence[]>()
+    for (const occurrence of cappedOccurrences) {
+      const attendingCount =
+        attendingCountByOccurrenceId.get(occurrence.id) ?? paginationOffsetDefault
+      const subCount =
+        subCountByOccurrenceId.get(occurrence.id) ?? paginationOffsetDefault
+      const sessionCapacity =
+        sessionCapacityBySessionId.get(occurrence.sessionId) ??
+        sessionCapacityDefault
+      const occurrenceSummary: AdminLeagueDetailOccurrence = {
+        id: occurrence.id,
+        sessionId: occurrence.sessionId,
+        startsAt: occurrence.startsAt,
+        endsAt: occurrence.endsAt,
+        status: occurrence.status,
+        createdAt: occurrence.createdAt,
+        updatedAt: occurrence.updatedAt,
+        attendingCount,
+        subCount,
+        openSpots: Math.max(sessionCapacity - attendingCount, paginationOffsetDefault)
+      }
+
+      const existingOccurrences =
+        occurrencesBySessionId.get(occurrence.sessionId) ?? []
+      existingOccurrences.push(occurrenceSummary)
+      occurrencesBySessionId.set(occurrence.sessionId, existingOccurrences)
+    }
+
+    return sessions.map((session) => ({
+      ...session,
+      assignmentCount:
+        assignmentsBySessionId.get(session.id)?.length ?? paginationOffsetDefault,
+      occurrenceCount:
+        occurrenceCountBySessionId.get(session.id) ?? paginationOffsetDefault,
+      assignments: assignmentsBySessionId.get(session.id) ?? [],
+      occurrences: occurrencesBySessionId.get(session.id) ?? [],
+      adminLeagueDetailInputKey: inputKey
+    }))
+  }
+
+  public async adminSessionTemplateAssignmentCount(sessionId: string): Promise<number> {
+    return prisma.slotAssignment.count({
+      where: { sessionId }
+    })
+  }
+
+  public async adminSessionTemplateAssignments(
+    sessionId: string
+  ): Promise<AdminSlotAssignmentWithUser[]> {
+    const assignments = await prisma.slotAssignment.findMany({
+      where: { sessionId },
+      include: {
+        user: {
+          select: {
+            id: true,
+            phoneNumber: true,
+            displayName: true,
+            isOnApp: true,
+            role: true
+          }
+        }
+      }
+    })
+
+    return assignments.sort((left, right) =>
+      this.compareAssignmentsByUser(left, right)
+    )
+  }
+
+  public async adminSessionTemplateOccurrenceCount(
+    sessionId: string,
+    input: AdminLeagueDetailInput | null | undefined
+  ): Promise<number> {
+    const normalizedInput = this.normalizeAdminLeagueDetailInput(input)
+    return prisma.sessionOccurrence.count({
+      where: this.buildOccurrenceWhereBySessionIds([sessionId], normalizedInput)
+    })
+  }
+
+  public async adminSessionTemplateOccurrences(
+    sessionId: string,
+    sessionCapacity: number,
+    input: AdminLeagueDetailInput | null | undefined
+  ): Promise<AdminLeagueDetailOccurrence[]> {
+    const normalizedInput = this.normalizeAdminLeagueDetailInput(input)
+    const cappedOccurrences = await this.loadCappedOccurrencesBySessionIds(
+      [sessionId],
+      normalizedInput
+    )
+
+    if (cappedOccurrences.length === 0) {
+      return []
+    }
+
+    const occurrenceIds = cappedOccurrences.map((occurrence) => occurrence.id)
+    const [attendingCounts, subCounts] = await Promise.all([
+      prisma.sessionRegistration.groupBy({
+        by: ['occurrenceId'],
+        where: {
+          occurrenceId: { in: occurrenceIds },
+          status: registrationStatusAttending
+        },
+        _count: { _all: true }
+      }),
+      prisma.subSignup.groupBy({
+        by: ['occurrenceId'],
+        where: {
+          occurrenceId: { in: occurrenceIds },
+          status: { in: subSignupSummaryStatuses }
+        },
+        _count: { _all: true }
+      })
+    ])
+
+    const attendingCountByOccurrenceId = new Map<string, number>()
+    for (const attendingCount of attendingCounts) {
+      attendingCountByOccurrenceId.set(
+        attendingCount.occurrenceId,
+        attendingCount._count._all
+      )
+    }
+
+    const subCountByOccurrenceId = new Map<string, number>()
+    for (const subCount of subCounts) {
+      subCountByOccurrenceId.set(subCount.occurrenceId, subCount._count._all)
+    }
+
+    return cappedOccurrences.map((occurrence) => {
+      const attendingCount =
+        attendingCountByOccurrenceId.get(occurrence.id) ?? paginationOffsetDefault
+      const subCount =
+        subCountByOccurrenceId.get(occurrence.id) ?? paginationOffsetDefault
+      return {
+        id: occurrence.id,
+        sessionId: occurrence.sessionId,
+        startsAt: occurrence.startsAt,
+        endsAt: occurrence.endsAt,
+        status: occurrence.status,
+        createdAt: occurrence.createdAt,
+        updatedAt: occurrence.updatedAt,
+        attendingCount,
+        subCount,
+        openSpots: Math.max(sessionCapacity - attendingCount, paginationOffsetDefault)
+      }
     })
   }
 
@@ -975,7 +1466,9 @@ export class AdminManagementService {
           select: {
             id: true,
             phoneNumber: true,
-            isOnApp: true
+            displayName: true,
+            isOnApp: true,
+            role: true
           }
         }
       }

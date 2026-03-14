@@ -20,6 +20,8 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - Admin guard (`ADMIN` role) for all admin mutations
 - Admin CRUD APIs for leagues, session templates, session occurrences, and slot assignments (single + batch variants where applicable)
 - Admin read APIs for leagues, league detail/rules, occurrence rosters, and player search/filter pagination
+- Admin league detail nested query returns league rules, sessions, assignments, and occurrence summaries in one request with archived/canceled/date filters
+- Admin league detail occurrence rows include `attendingCount` (ATTENDING), `subCount` (ACTIVE + SELECTED), and `openSpots` (`max(capacity - attendingCount, 0)`)
 - Admin player management mutations for creating/updating users (`phoneNumber`, `displayName`, `role`, `isOnApp`)
 - Admin direct status control mutations for registrations and sub signups
 - Admin league rules mutations for league-scoped upsert and template-copy workflows
