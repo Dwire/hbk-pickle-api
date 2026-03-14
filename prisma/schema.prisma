@@ -141,6 +141,7 @@ model Session {
   assignments SlotAssignment[]
 
   @@index([status])
+  @@index([leagueId, status])
 }
 
 model SessionOccurrence {
@@ -157,6 +158,7 @@ model SessionOccurrence {
   notifications Notification[]
 
   @@unique([sessionId, startsAt])
+  @@index([sessionId, startsAt, status])
 }
 
 model SlotAssignment {
@@ -170,6 +172,7 @@ model SlotAssignment {
   session   Session  @relation(fields: [sessionId], references: [id])
 
   @@unique([leagueId, userId])
+  @@index([sessionId])
 }
 
 model SessionRegistration {
@@ -183,6 +186,7 @@ model SessionRegistration {
   occurrence   SessionOccurrence  @relation(fields: [occurrenceId], references: [id])
 
   @@unique([userId, occurrenceId])
+  @@index([occurrenceId, status])
 }
 
 model SubSignup {
@@ -199,6 +203,7 @@ model SubSignup {
   occurrence SessionOccurrence @relation(fields: [occurrenceId], references: [id])
 
   @@unique([userId, occurrenceId])
+  @@index([occurrenceId, status, signedUpAt])
 }
 
 model Notification {

@@ -4,6 +4,10 @@ import { Kind } from 'graphql'
 import type { GraphQLScalarType, ValueNode } from 'graphql'
 
 import { AdminManagementService } from '../../features/admin/adminManagementService.js'
+import type {
+  AdminLeagueDetailInput,
+  AdminLeagueDetailSession
+} from '../../features/admin/adminManagementService.js'
 import { AuthService } from '../../features/auth/authService.js'
 import { RegistrationService } from '../../features/registrations/registrationService.js'
 import { RuleService } from '../../features/rules/ruleService.js'
@@ -249,6 +253,8 @@ const typeDefs = `#graphql
     timeZone: String
     createdAt: DateTime!
     updatedAt: DateTime!
+    rules: [LeagueRule!]!
+    sessions(input: AdminLeagueDetailInput): [AdminSessionTemplate!]!
   }
 
   type AdminSessionTemplate {
@@ -262,6 +268,10 @@ const typeDefs = `#graphql
     status: SessionStatus!
     createdAt: DateTime!
     updatedAt: DateTime!
+    assignmentCount: Int!
+    occurrenceCount: Int!
+    assignments: [AdminSlotAssignment!]!
+    occurrences(input: AdminLeagueDetailInput): [AdminSessionOccurrence!]!
   }
 
   type AdminSessionOccurrence {
@@ -272,6 +282,9 @@ const typeDefs = `#graphql
     status: SessionOccurrenceStatus!
     createdAt: DateTime!
     updatedAt: DateTime!
+    attendingCount: Int!
+    subCount: Int!
+    openSpots: Int!
   }
 
   type AdminSlotAssignment {
@@ -280,6 +293,8 @@ const typeDefs = `#graphql
     sessionId: ID!
     userId: ID!
     userPhoneNumber: String!
+    userDisplayName: String
+    userRole: UserRole!
     isUserOnApp: Boolean!
     createdAt: DateTime!
   }
@@ -398,6 +413,14 @@ const typeDefs = `#graphql
     offset: Int
   }
 
+  input AdminLeagueDetailInput {
+    includeArchivedSessions: Boolean = true
+    includeCanceledOccurrences: Boolean = true
+    occurrenceStart: DateTime
+    occurrenceEnd: DateTime
+    maxOccurrencesPerSession: Int = 250
+  }
+
   type Query {
     me: User
     league: League
@@ -459,9 +482,106 @@ const resolvers = {
     subUsers: (session: { subUsers?: unknown[] | null }) =>
       session.subUsers ?? []
   },
+  AdminLeague: {
+    rules: async (
+      league: { id: string },
+      _: unknown,
+      context: AppContext
+    ) => {
+      await requireAdmin(context)
+      const adminService = new AdminManagementService()
+      return adminService.adminLeagueRules(league.id)
+    },
+    sessions: async (
+      league: { id: string },
+      args: { input?: AdminLeagueDetailInput | null },
+      context: AppContext
+    ) => {
+      await requireAdmin(context)
+      const adminService = new AdminManagementService()
+      return adminService.adminLeagueDetailSessions(league.id, args.input)
+    }
+  },
+  AdminSessionTemplate: {
+    assignmentCount: async (
+      session: Partial<AdminLeagueDetailSession> & { id: string },
+      _: unknown,
+      context: AppContext
+    ) => {
+      await requireAdmin(context)
+      if (typeof session.assignmentCount === 'number') {
+        return session.assignmentCount
+      }
+
+      if (Array.isArray(session.assignments)) {
+        return session.assignments.length
+      }
+
+      const adminService = new AdminManagementService()
+      return adminService.adminSessionTemplateAssignmentCount(session.id)
+    },
+    occurrenceCount: async (
+      session: Partial<AdminLeagueDetailSession> & { id: string },
+      _: unknown,
+      context: AppContext
+    ) => {
+      await requireAdmin(context)
+      if (typeof session.occurrenceCount === 'number') {
+        return session.occurrenceCount
+      }
+
+      const adminService = new AdminManagementService()
+      return adminService.adminSessionTemplateOccurrenceCount(session.id, null)
+    },
+    assignments: async (
+      session: Partial<AdminLeagueDetailSession> & { id: string },
+      _: unknown,
+      context: AppContext
+    ) => {
+      await requireAdmin(context)
+      if (Array.isArray(session.assignments)) {
+        return session.assignments
+      }
+
+      const adminService = new AdminManagementService()
+      return adminService.adminSessionTemplateAssignments(session.id)
+    },
+    occurrences: async (
+      session: Partial<AdminLeagueDetailSession> & {
+        id: string
+        capacity: number
+      },
+      args: { input?: AdminLeagueDetailInput | null },
+      context: AppContext
+    ) => {
+      await requireAdmin(context)
+      const adminService = new AdminManagementService()
+      if (Array.isArray(session.occurrences)) {
+        if (!args.input) {
+          return session.occurrences
+        }
+
+        const inputKey = adminService.getAdminLeagueDetailInputCacheKey(
+          args.input
+        )
+        if (session.adminLeagueDetailInputKey === inputKey) {
+          return session.occurrences
+        }
+      }
+
+      return adminService.adminSessionTemplateOccurrences(
+        session.id,
+        session.capacity,
+        args.input
+      )
+    }
+  },
   AdminSlotAssignment: {
     userPhoneNumber: (assignment: { user: { phoneNumber: string } }) =>
       assignment.user.phoneNumber,
+    userDisplayName: (assignment: { user: { displayName: string | null } }) =>
+      assignment.user.displayName,
+    userRole: (assignment: { user: { role: UserRole } }) => assignment.user.role,
     isUserOnApp: (assignment: { user: { isOnApp: boolean } }) =>
       assignment.user.isOnApp
   },

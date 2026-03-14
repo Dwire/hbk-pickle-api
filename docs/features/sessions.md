@@ -11,6 +11,7 @@
 - Session summaries expose `occurrenceStatus` (`ACTIVE`/`CANCELED`) so clients can render canceled sessions differently.
 - Admin create/update/archive session templates and create/update/delete occurrences.
 - Admin occurrence create/update enforces parent league date bounds (`startsAt >= league.startDate`, `endsAt <= league.endDate` when bounds exist).
+- Admin league detail nested session rows expose occurrence counters (`attendingCount`, `subCount`, `openSpots`) and filtered occurrence lists for dashboard rendering.
 - Occurrence delete auto-cancels when historical registration/sub data exists.
 
 ## Key Files

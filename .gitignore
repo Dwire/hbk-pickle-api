@@ -5,7 +5,6 @@ dist
 .DS_Store
 coverage
 pnpm-debug.log
-prisma/migrations
 *.log
 .cache
 .idea
