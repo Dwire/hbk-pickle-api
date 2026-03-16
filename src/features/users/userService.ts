@@ -8,6 +8,7 @@ const messageUserMissingForDisplayName = 'User missing for display name update'
 const logLoadedProfileStatsMemberships = 'Loaded user league memberships for profile stats'
 const logResolvedProfileStatsCurrentLeague = 'Resolved current league for profile stats'
 const logComputedProfileStatsCounts = 'Computed profile stats counts'
+const logLoadedUserOrganizations = 'Loaded user organizations'
 const profileStatsZeroCount = 0
 const subSignupStatusActive: SubSignupStatus = 'ACTIVE'
 const subSignupStatusSelected: SubSignupStatus = 'SELECTED'
@@ -27,6 +28,12 @@ type LeagueSummary = {
   name: string
 }
 
+type OrganizationSummary = {
+  id: string
+  name: string
+  slug: string
+}
+
 export type ProfileStats = {
   currentLeague: LeagueSummary | null
   leaguesParticipated: LeagueSummary[]
@@ -44,6 +51,33 @@ export type ProfileStats = {
  * - Used by authenticated GraphQL profile queries and mutations.
  */
 export class UserService {
+  /**
+   * List organizations where the authenticated user has membership.
+   */
+  public async listOrganizations(userId: string): Promise<OrganizationSummary[]> {
+    const memberships = await prisma.organizationMembership.findMany({
+      where: { userId },
+      orderBy: {
+        organization: {
+          name: 'asc'
+        }
+      },
+      select: {
+        organization: {
+          select: {
+            id: true,
+            name: true,
+            slug: true
+          }
+        }
+      }
+    })
+
+    logger.info({ userId, organizationCount: memberships.length }, logLoadedUserOrganizations)
+
+    return memberships.map((membership) => membership.organization)
+  }
+
   /**
    * Upserts the display name for the authenticated user.
    */

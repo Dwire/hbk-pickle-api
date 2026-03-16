@@ -10,6 +10,7 @@
 - Organization membership roles: `OWNER` and `ADMIN`.
 - League membership status: `ACTIVE` and `REMOVED`.
 - GraphQL `User.role` resolves from organization membership role (`OWNER`/`ADMIN`) and defaults to `PLAYER`.
+- Authenticated users can query `organizations` to list organizations where they hold membership.
 - Member-facing `league`, `rules`, and `sessionsWeek` accept optional `leagueId`; when omitted, the API resolves the caller's effective active league.
 - League participation (`registerForSession`, `signupAsSub`) requires `LeagueMembership.status = ACTIVE`.
 
@@ -21,6 +22,7 @@
 - src/app/auth.ts: Org-admin and league-access guards.
 - src/app/context.ts: Request-scoped authz memoization container for org/league guard lookups.
 - src/app/graphql/schema.ts: League-scoped query arguments and org-scoped admin resolver checks.
+- src/features/users/userService.ts: Authenticated user organization listing and profile stats aggregation.
 
 ## Data Flow
 

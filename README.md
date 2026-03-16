@@ -19,6 +19,7 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - Authenticated users can update their display name via GraphQL
 - Organization tenancy with per-org league lifecycle (`League.organizationId`)
 - Organization-scoped admin roles via `OrganizationMembership.role` (`OWNER`, `ADMIN`)
+- Authenticated `organizations` query lists the organizations where the caller has membership
 - League participation membership via `LeagueMembership.status` (`ACTIVE`, `REMOVED`)
 - Resolver-level org/league auth guards with request-scoped league/org resolution memoization
 - GraphQL `User.role` derived from organization membership context (`OWNER`/`ADMIN`) with `PLAYER` fallback
@@ -46,7 +47,7 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - Register/sub mutations require `LeagueMembership.ACTIVE` and reject attempts for canceled occurrences
 - `sessionOccurrenceDetail` capability flags (`canRegister`, `canSub`) require `LeagueMembership.ACTIVE` to match mutation enforcement
 - Scheduler ticks enqueue Bull sub-selection jobs from registration close through occurrence end; sub-selection worker recomputes selection and sends push notifications only for selection state changes
-- Reminder scheduler queues registration-close/session-start notifications only at or after warning time, batches attendee/device lookups, and dedupes once per `(userId, occurrenceId, kind)`
+- Reminder scheduler queues registration-close/session-start notifications only at or after warning time, batches attendee/device lookups, dedupes once per `(userId, occurrenceId, kind)`, and retries enqueueing existing `PENDING` reminders that were never dispatched
 - Scheduler tick and sub-selection worker process `ACTIVE` occurrences only
 - Scheduler ticks skip enqueueing duplicate in-flight sub-selection job ids so repeated ticks remain stable
 - sessionsWeek sub signup status returns ACTIVE or SELECTED sub signups for the current user

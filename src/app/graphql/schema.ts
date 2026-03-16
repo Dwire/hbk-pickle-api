@@ -239,6 +239,12 @@ const typeDefs = `#graphql
     SUNDAY
   }
 
+  type Organization {
+    id: ID!
+    name: String!
+    slug: String!
+  }
+
   type User {
     id: ID!
     phoneNumber: String!
@@ -547,6 +553,7 @@ const typeDefs = `#graphql
 
   type Query {
     me: User
+    organizations: [Organization!]!
     league(leagueId: ID): League
     rules(leagueId: ID): [LeagueRule!]!
     sessionsWeek(leagueId: ID): [Session!]!
@@ -734,6 +741,11 @@ const resolvers = {
       } catch {
         return user
       }
+    },
+    organizations: async (_: unknown, __: unknown, context: AppContext) => {
+      const userId = requireAuth(context)
+      const userService = new UserService()
+      return userService.listOrganizations(userId)
     },
     league: async (
       _: unknown,

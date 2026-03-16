@@ -29,7 +29,7 @@
 - Scheduler tick skips enqueueing when an occurrence already has an in-flight sub-selection job id, preventing duplicate-job enqueue failures in repeated ticks.
 - Reminder scheduler only queues registration-close/session-start warnings when warning time is reached (`warningAt <= now`).
 - Reminder scheduler batches due occurrences, attending users, and user devices to avoid per-occurrence query fanout.
-- Reminder scheduler enforces once-only reminder semantics per `(userId, occurrenceId, kind)` and queues reminder jobs with deterministic notification-based job ids.
+- Reminder scheduler enforces once-only reminder semantics per `(userId, occurrenceId, kind)`, reuses existing `PENDING` reminder rows when enqueue is retried, and queues reminder jobs with deterministic notification-based job ids.
 - Sub-selection worker revalidates eligibility, runs selection, and queues `SUB_SELECTED` for newly selected users and `SUB_STATUS_CHANGED` for users who are no longer selected.
 - Admin occurrence cancellation creates at most one `SESSION_CANCELED` notification per user/occurrence and enqueues notification jobs only for users with registered device tokens.
 - Notifications worker delivers queued push jobs via FCM.

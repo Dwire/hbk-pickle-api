@@ -33,6 +33,8 @@ const reminderJobIdPrefix = 'reminder-notify'
 const reminderJobIdSeparator = '-'
 const millisecondsPerMinute = 60_000
 const uniqueConstraintErrorCode = 'P2002'
+const notificationStatusSent = 'SENT'
+const notificationStatusFailed = 'FAILED'
 
 type ReminderDefinition = {
   queueJobName: string
@@ -49,6 +51,13 @@ const buildReminderKey = (
 
 const buildReminderQueueJobId = (notificationId: string): string =>
   `${reminderJobIdPrefix}${reminderJobIdSeparator}${notificationId}`
+
+type ExistingReminderNotification = {
+  id: string
+  userId: string
+  occurrenceId: string
+  status: string
+}
 
 const registrationCloseReminder: ReminderDefinition = {
   queueJobName: registrationCloseWarningJobName,
@@ -139,8 +148,10 @@ export class RegistrationScheduler {
           kind: reminder.kind
         },
         select: {
+          id: true,
           userId: true,
-          occurrenceId: true
+          occurrenceId: true,
+          status: true
         }
       }),
       prisma.userDevice.findMany({
@@ -153,13 +164,20 @@ export class RegistrationScheduler {
         }
       })
     ])
-    const existingReminderKeys = new Set(
-      existingNotifications
-        .filter((notification) => notification.occurrenceId)
-        .map((notification) =>
-          buildReminderKey(notification.userId, notification.occurrenceId as string)
-        )
-    )
+    const existingReminderByKey = new Map<string, ExistingReminderNotification>()
+    for (const notification of existingNotifications) {
+      if (!notification.occurrenceId) {
+        continue
+      }
+
+      const reminderKey = buildReminderKey(notification.userId, notification.occurrenceId)
+      existingReminderByKey.set(reminderKey, {
+        id: notification.id,
+        userId: notification.userId,
+        occurrenceId: notification.occurrenceId,
+        status: notification.status
+      })
+    }
     const deviceTokensByUserId = new Map<string, string[]>()
     for (const device of devices) {
       const existingTokens = deviceTokensByUserId.get(device.userId) ?? []
@@ -170,48 +188,88 @@ export class RegistrationScheduler {
     let queuedCount = 0
     let existingReminderCount = 0
     let skippedNoDeviceCount = 0
+    let reusedPendingReminderCount = 0
+    let skippedExistingJobCount = 0
 
     for (const attendee of attendees) {
       const reminderKey = buildReminderKey(attendee.userId, attendee.occurrenceId)
-      if (existingReminderKeys.has(reminderKey)) {
+      const existingReminder = existingReminderByKey.get(reminderKey)
+      if (
+        existingReminder &&
+        (existingReminder.status === notificationStatusSent ||
+          existingReminder.status === notificationStatusFailed)
+      ) {
         existingReminderCount += 1
         continue
       }
 
-      let notificationId = ''
-      try {
-        const notification = await prisma.notification.create({
-          data: {
-            userId: attendee.userId,
-            occurrenceId: attendee.occurrenceId,
-            title: reminder.title,
-            body: reminder.body,
-            channel: notificationChannelPush,
-            status: notificationStatusPending,
-            kind: reminder.kind
-          },
-          select: {
-            id: true
-          }
-        })
-        notificationId = notification.id
-      } catch (error) {
-        if (
-          error instanceof Prisma.PrismaClientKnownRequestError &&
-          error.code === uniqueConstraintErrorCode
-        ) {
-          existingReminderCount += 1
-          existingReminderKeys.add(reminderKey)
-          continue
-        }
-
-        throw error
-      }
-      existingReminderKeys.add(reminderKey)
-
       const deviceTokens = deviceTokensByUserId.get(attendee.userId) ?? []
       if (deviceTokens.length === 0) {
         skippedNoDeviceCount += 1
+        continue
+      }
+
+      let notificationId = existingReminder?.id ?? ''
+      if (existingReminder) {
+        reusedPendingReminderCount += 1
+      } else {
+        try {
+          const notification = await prisma.notification.create({
+            data: {
+              userId: attendee.userId,
+              occurrenceId: attendee.occurrenceId,
+              title: reminder.title,
+              body: reminder.body,
+              channel: notificationChannelPush,
+              status: notificationStatusPending,
+              kind: reminder.kind
+            },
+            select: {
+              id: true
+            }
+          })
+          notificationId = notification.id
+        } catch (error) {
+          if (
+            error instanceof Prisma.PrismaClientKnownRequestError &&
+            error.code === uniqueConstraintErrorCode
+          ) {
+            const existingNotification = await prisma.notification.findFirst({
+              where: {
+                userId: attendee.userId,
+                occurrenceId: attendee.occurrenceId,
+                kind: reminder.kind
+              },
+              select: {
+                id: true,
+                status: true
+              }
+            })
+
+            if (!existingNotification) {
+              throw error
+            }
+
+            if (
+              existingNotification.status === notificationStatusSent ||
+              existingNotification.status === notificationStatusFailed
+            ) {
+              existingReminderCount += 1
+              continue
+            }
+
+            notificationId = existingNotification.id
+            reusedPendingReminderCount += 1
+          } else {
+            throw error
+          }
+        }
+      }
+
+      const queueJobId = buildReminderQueueJobId(notificationId)
+      const existingJob = await notificationQueue.getJob(queueJobId)
+      if (existingJob) {
+        skippedExistingJobCount += 1
         continue
       }
 
@@ -222,7 +280,7 @@ export class RegistrationScheduler {
           deviceTokens
         } as QueuePayload,
         {
-          jobId: buildReminderQueueJobId(notificationId),
+          jobId: queueJobId,
           removeOnComplete: true,
           removeOnFail: true
         }
@@ -237,7 +295,9 @@ export class RegistrationScheduler {
         attendeeCount: attendees.length,
         queuedCount,
         existingReminderCount,
-        skippedNoDeviceCount
+        skippedNoDeviceCount,
+        reusedPendingReminderCount,
+        skippedExistingJobCount
       },
       'Queued reminder notifications'
     )
