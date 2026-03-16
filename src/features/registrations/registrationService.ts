@@ -4,6 +4,7 @@ import { SessionService } from '../sessions/sessionService.js'
 import { getEasternDayRangeUtc } from '../../shared/time.js'
 
 const occurrenceStatusCanceled = 'CANCELED'
+const leagueMembershipStatusActive = 'ACTIVE'
 
 /**
  * RegistrationService
@@ -33,6 +34,23 @@ export class RegistrationService {
     if (!sessionService.isWithinRegistrationWindow(now, occurrence.startsAt)) {
       logger.warn({ occurrenceId, userId }, 'Registration attempt outside window')
       throw new Error('Registration window closed')
+    }
+
+    const leagueMembership = await prisma.leagueMembership.findUnique({
+      where: {
+        leagueId_userId: {
+          leagueId: occurrence.session.leagueId,
+          userId
+        }
+      },
+      select: {
+        status: true
+      }
+    })
+
+    if (!leagueMembership || leagueMembership.status !== leagueMembershipStatusActive) {
+      logger.warn({ occurrenceId, userId }, 'Registration attempt without active league membership')
+      throw new Error('User not active in this league')
     }
 
     const assignment = await prisma.slotAssignment.findFirst({

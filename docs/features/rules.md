@@ -2,23 +2,21 @@
 
 ## Purpose
 
-- Persist league rules for static display in the app, scoped by league context.
+- Persist league rules for static display in explicit league context.
 
 ## Core API
 
-- List rules for the authenticated user's current league (`ACTIVE` assignment first, latest assignment fallback) or the `ACTIVE` league when unauthenticated/unassigned.
-- Admin upsert rule by order.
-- Admin upsert rule by `leagueId` + optional `ruleId` + `order`.
-- Admin template copy from one league to another, optionally replacing existing target rules.
+- `rules(leagueId)` for member-facing reads with league access checks.
+- `adminUpsertLeagueRule` by `leagueId` + optional `ruleId` + `order`.
+- `adminCopyLeagueRulesFromTemplate` for copying ordered rules between leagues.
 
 ## Key Files
 
-- src/features/rules/ruleService.ts: Rule CRUD logic.
-- src/app/graphql/schema.ts: Rules query and admin mutation.
+- src/features/rules/ruleService.ts: Rule list/upsert logic for explicit league IDs.
+- src/app/graphql/schema.ts: Rules query and admin mutations with org-scoped auth checks.
 
 ## Data Flow
 
-- Seed data creates default league rules for the demo league.
-- Rules query resolves a target league before listing rules.
-- Admin upserts rules with order per league.
-- Admin template copy reads source rules by order and writes/upserts onto the target league.
+- Rules query receives `leagueId` directly and lists rules ordered by `order`.
+- Resolver-level access checks enforce member/admin visibility for the target league.
+- Admin rule mutations require org admin/owner access to the target league.

@@ -9,11 +9,6 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-enum UserRole {
-  PLAYER
-  ADMIN
-}
-
 enum LeagueStatus {
   DRAFT
   UPCOMING
@@ -72,24 +67,35 @@ enum Weekday {
   SUNDAY
 }
 
+enum OrganizationMembershipRole {
+  OWNER
+  ADMIN
+}
+
+enum LeagueMembershipStatus {
+  ACTIVE
+  REMOVED
+}
+
 model User {
-  id             String   @id @default(uuid())
-  phoneNumber    String   @unique
-  displayName    String?
-  isOnApp        Boolean  @default(false)
-  role           UserRole @default(PLAYER)
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-  slotAssignments SlotAssignment[]
-  registrations  SessionRegistration[]
-  subSignups     SubSignup[]
-  devices        UserDevice[]
-  notifications  Notification[]
+  id                      String                   @id @default(uuid()) @db.Uuid
+  phoneNumber             String                   @unique
+  displayName             String?
+  isOnApp                 Boolean                  @default(false)
+  createdAt               DateTime                 @default(now())
+  updatedAt               DateTime                 @updatedAt
+  slotAssignments         SlotAssignment[]
+  registrations           SessionRegistration[]
+  subSignups              SubSignup[]
+  devices                 UserDevice[]
+  notifications           Notification[]
+  organizationMemberships OrganizationMembership[]
+  leagueMemberships       LeagueMembership[]
 }
 
 model UserDevice {
-  id          String   @id @default(uuid())
-  userId      String
+  id          String   @id @default(uuid()) @db.Uuid
+  userId      String   @db.Uuid
   token       String   @unique
   platform    String
   createdAt   DateTime @default(now())
@@ -97,24 +103,66 @@ model UserDevice {
 }
 
 model League {
-  id          String   @id @default(uuid())
+  id          String             @id @default(uuid()) @db.Uuid
+  organizationId String          @db.Uuid
   name        String
-  status      LeagueStatus @default(DRAFT)
+  status      LeagueStatus       @default(DRAFT)
   startDate   DateTime?
   endDate     DateTime?
   timeZone    String?
-  createdAt   DateTime @default(now())
-  updatedAt   DateTime @updatedAt
+  createdAt   DateTime           @default(now())
+  updatedAt   DateTime           @updatedAt
+  organization Organization      @relation(fields: [organizationId], references: [id])
   rules       LeagueRule[]
   sessions    Session[]
   assignments SlotAssignment[]
+  memberships LeagueMembership[]
 
   @@index([status])
+  @@index([organizationId, status])
+}
+
+model Organization {
+  id          String                   @id @default(uuid()) @db.Uuid
+  name        String
+  slug        String                   @unique
+  createdAt   DateTime                 @default(now())
+  updatedAt   DateTime                 @updatedAt
+  leagues     League[]
+  memberships OrganizationMembership[]
+}
+
+model OrganizationMembership {
+  id             String                   @id @default(uuid()) @db.Uuid
+  organizationId String                   @db.Uuid
+  userId         String                   @db.Uuid
+  role           OrganizationMembershipRole
+  createdAt      DateTime                 @default(now())
+  updatedAt      DateTime                 @updatedAt
+  organization   Organization             @relation(fields: [organizationId], references: [id])
+  user           User                     @relation(fields: [userId], references: [id])
+
+  @@unique([organizationId, userId])
+  @@index([userId])
+}
+
+model LeagueMembership {
+  id         String                 @id @default(uuid()) @db.Uuid
+  leagueId   String                 @db.Uuid
+  userId     String                 @db.Uuid
+  status     LeagueMembershipStatus @default(ACTIVE)
+  createdAt  DateTime               @default(now())
+  updatedAt  DateTime               @updatedAt
+  league     League                 @relation(fields: [leagueId], references: [id])
+  user       User                   @relation(fields: [userId], references: [id])
+
+  @@unique([leagueId, userId])
+  @@index([userId, status])
 }
 
 model LeagueRule {
-  id        String   @id @default(uuid())
-  leagueId  String
+  id        String   @id @default(uuid()) @db.Uuid
+  leagueId  String   @db.Uuid
   title     String
   body      String
   order     Int
@@ -126,8 +174,8 @@ model LeagueRule {
 }
 
 model Session {
-  id          String   @id @default(uuid())
-  leagueId    String
+  id          String   @id @default(uuid()) @db.Uuid
+  leagueId    String   @db.Uuid
   status      SessionStatus @default(ACTIVE)
   title       String
   weekday     Weekday
@@ -145,8 +193,8 @@ model Session {
 }
 
 model SessionOccurrence {
-  id         String   @id @default(uuid())
-  sessionId  String
+  id         String   @id @default(uuid()) @db.Uuid
+  sessionId  String   @db.Uuid
   startsAt   DateTime
   endsAt     DateTime
   status     SessionOccurrenceStatus @default(ACTIVE)
@@ -162,10 +210,10 @@ model SessionOccurrence {
 }
 
 model SlotAssignment {
-  id        String   @id @default(uuid())
-  leagueId  String
-  userId    String
-  sessionId String
+  id        String   @id @default(uuid()) @db.Uuid
+  leagueId  String   @db.Uuid
+  userId    String   @db.Uuid
+  sessionId String   @db.Uuid
   createdAt DateTime @default(now())
   league    League   @relation(fields: [leagueId], references: [id])
   user      User     @relation(fields: [userId], references: [id])
@@ -176,9 +224,9 @@ model SlotAssignment {
 }
 
 model SessionRegistration {
-  id           String             @id @default(uuid())
-  userId       String
-  occurrenceId String
+  id           String             @id @default(uuid()) @db.Uuid
+  userId       String             @db.Uuid
+  occurrenceId String             @db.Uuid
   status       RegistrationStatus
   updatedAt    DateTime           @updatedAt
   createdAt    DateTime           @default(now())
@@ -190,9 +238,9 @@ model SessionRegistration {
 }
 
 model SubSignup {
-  id         String          @id @default(uuid())
-  userId     String
-  occurrenceId String
+  id         String          @id @default(uuid()) @db.Uuid
+  userId     String          @db.Uuid
+  occurrenceId String        @db.Uuid
   status     SubSignupStatus
   signedUpAt DateTime        @default(now())
   selectionRank Int?
@@ -207,9 +255,9 @@ model SubSignup {
 }
 
 model Notification {
-  id         String              @id @default(uuid())
-  userId     String
-  occurrenceId  String?
+  id         String              @id @default(uuid()) @db.Uuid
+  userId     String              @db.Uuid
+  occurrenceId  String?          @db.Uuid
   title      String
   body       String
   channel    NotificationChannel

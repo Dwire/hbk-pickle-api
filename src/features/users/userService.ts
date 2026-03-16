@@ -5,7 +5,7 @@ import { prisma } from '../../shared/prisma.js'
 const logUpsertingDisplayName = 'Upserting user display name'
 const logUpsertedDisplayName = 'Upserted user display name'
 const messageUserMissingForDisplayName = 'User missing for display name update'
-const logLoadedProfileStatsAssignments = 'Loaded user slot assignments for profile stats'
+const logLoadedProfileStatsMemberships = 'Loaded user league memberships for profile stats'
 const logResolvedProfileStatsCurrentLeague = 'Resolved current league for profile stats'
 const logComputedProfileStatsCounts = 'Computed profile stats counts'
 const profileStatsZeroCount = 0
@@ -20,6 +20,7 @@ const subSignupStatusesNotCanceled: SubSignupStatus[] = [
 const registrationStatusAttending: RegistrationStatus = 'ATTENDING'
 const sessionOccurrenceStatusActive = 'ACTIVE'
 const leagueStatusActive = 'ACTIVE'
+const leagueMembershipStatusActive = 'ACTIVE'
 
 type LeagueSummary = {
   id: string
@@ -66,38 +67,43 @@ export class UserService {
 
   /**
    * Build profile stats for the authenticated user.
-   * - Resolves current league from slot assignments (active league preferred).
-   * - Returns all leagues where the user has been assigned.
+   * - Resolves current league from active league memberships (active league preferred).
+   * - Returns all leagues where the user has league membership history.
    * - Aggregates sub/attendance counts scoped to the current league.
    */
   public async getProfileStats(userId: string): Promise<ProfileStats> {
-    const assignments = await prisma.slotAssignment.findMany({
+    const memberships = await prisma.leagueMembership.findMany({
       where: { userId },
-      orderBy: { createdAt: 'desc' },
+      orderBy: { updatedAt: 'desc' },
       select: {
-        createdAt: true,
-        league: { select: { id: true, name: true, status: true } }
+        status: true,
+        updatedAt: true,
+        league: { select: { id: true, name: true, status: true, updatedAt: true } }
       }
     })
 
-    logger.info({ userId, assignmentCount: assignments.length }, logLoadedProfileStatsAssignments)
+    logger.info({ userId, membershipCount: memberships.length }, logLoadedProfileStatsMemberships)
 
     const leaguesById = new Map<string, LeagueSummary>()
-    assignments.forEach((assignment) => {
-      if (!leaguesById.has(assignment.league.id)) {
-        leaguesById.set(assignment.league.id, {
-          id: assignment.league.id,
-          name: assignment.league.name
+    memberships.forEach((membership) => {
+      if (!leaguesById.has(membership.league.id)) {
+        leaguesById.set(membership.league.id, {
+          id: membership.league.id,
+          name: membership.league.name
         })
       }
     })
 
-    const activeAssignment = assignments.find((assignment) => assignment.league.status === leagueStatusActive)
-    const currentAssignment = activeAssignment ?? assignments[0] ?? null
-    const currentLeague = currentAssignment
+    const activeMembership = memberships.find(
+      (membership) =>
+        membership.status === leagueMembershipStatusActive &&
+        membership.league.status === leagueStatusActive
+    )
+    const currentMembership = activeMembership ?? memberships[0] ?? null
+    const currentLeague = currentMembership
       ? {
-          id: currentAssignment.league.id,
-          name: currentAssignment.league.name
+          id: currentMembership.league.id,
+          name: currentMembership.league.name
         }
       : null
 
@@ -105,7 +111,7 @@ export class UserService {
       {
         userId,
         currentLeagueId: currentLeague?.id ?? null,
-        currentLeagueStatus: currentAssignment?.league.status ?? null,
+        currentLeagueStatus: currentMembership?.league.status ?? null,
         leaguesParticipatedCount: leaguesById.size
       },
       logResolvedProfileStatsCurrentLeague

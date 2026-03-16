@@ -11,6 +11,8 @@ import {
 
 const seedLeagueNamePrefix = 'Seed League'
 const seedLeagueTimeZone = 'America/New_York'
+const seedOrganizationName = 'HBK Rec League'
+const seedOrganizationSlug = 'hbk-rec-league'
 const seedUserDisplayNamePrefix = 'Seed Player'
 const seedPhonePrefix = '+155500'
 const protectedUserId = '714415e3-5239-4db0-9800-add7cc45c4c9'
@@ -170,8 +172,7 @@ const buildUserData = (seedGeneratedUserCount: number) =>
     return {
       phoneNumber: `${seedPhonePrefix}${suffix}`,
       displayName: `${seedUserDisplayNamePrefix} ${String(index + 1).padStart(2, '0')}`,
-      isOnApp: true,
-      role: 'PLAYER' as const
+      isOnApp: true
     }
   })
 
@@ -306,6 +307,9 @@ const clearSeedData = async () => {
   const assignmentResult = await prisma.slotAssignment.deleteMany()
   logger.info({ count: assignmentResult.count }, 'Cleared slot assignments')
 
+  const leagueMembershipResult = await prisma.leagueMembership.deleteMany()
+  logger.info({ count: leagueMembershipResult.count }, 'Cleared league memberships')
+
   const occurrenceResult = await prisma.sessionOccurrence.deleteMany()
   logger.info({ count: occurrenceResult.count }, 'Cleared session occurrences')
 
@@ -317,6 +321,12 @@ const clearSeedData = async () => {
 
   const leagueResult = await prisma.league.deleteMany()
   logger.info({ count: leagueResult.count }, 'Cleared leagues')
+
+  const organizationMembershipResult = await prisma.organizationMembership.deleteMany()
+  logger.info({ count: organizationMembershipResult.count }, 'Cleared organization memberships')
+
+  const organizationResult = await prisma.organization.deleteMany()
+  logger.info({ count: organizationResult.count }, 'Cleared organizations')
 
   const deviceResult = await prisma.userDevice.deleteMany()
   logger.info({ count: deviceResult.count }, 'Cleared user devices')
@@ -337,13 +347,24 @@ const ensureProtectedUser = async () => {
       id: protectedUserId,
       phoneNumber: protectedUserPhoneNumber,
       displayName: protectedUserDisplayName,
-      isOnApp: true,
-      role: 'PLAYER'
+      isOnApp: true
     }
   })
   logger.info({ userId: createdUser.id }, 'Created protected user')
   return createdUser
 }
+
+const ensureSeedOrganization = async () =>
+  prisma.organization.upsert({
+    where: { slug: seedOrganizationSlug },
+    create: {
+      name: seedOrganizationName,
+      slug: seedOrganizationSlug
+    },
+    update: {
+      name: seedOrganizationName
+    }
+  })
 
 const buildLeagueAssignments = (
   leagueId: string,
@@ -447,6 +468,23 @@ const seedLeagues = async () => {
   const leagueSeedConfigs = buildLeagueSeedConfigs(currentWeekStartDateParts)
 
   const protectedUser = await ensureProtectedUser()
+  const organization = await ensureSeedOrganization()
+  await prisma.organizationMembership.upsert({
+    where: {
+      organizationId_userId: {
+        organizationId: organization.id,
+        userId: protectedUser.id
+      }
+    },
+    create: {
+      organizationId: organization.id,
+      userId: protectedUser.id,
+      role: 'OWNER'
+    },
+    update: {
+      role: 'OWNER'
+    }
+  })
   const userData = buildUserData(getSeedGeneratedUserCount(sessionTemplates))
   await prisma.user.createMany({ data: userData })
   const seedUsers = await prisma.user.findMany({
@@ -467,6 +505,7 @@ const seedLeagues = async () => {
 
     const league = await prisma.league.create({
       data: {
+        organizationId: organization.id,
         name: leagueConfig.name,
         timeZone: seedLeagueTimeZone,
         startDate: toEasternMidnightUtc(leagueConfig.startDateParts),
@@ -498,6 +537,14 @@ const seedLeagues = async () => {
     const assignments = buildLeagueAssignments(league.id, sessions, users)
     if (assignments.length > 0) {
       await prisma.slotAssignment.createMany({ data: assignments })
+      await prisma.leagueMembership.createMany({
+        data: assignments.map((assignment) => ({
+          leagueId: assignment.leagueId,
+          userId: assignment.userId,
+          status: 'ACTIVE' as const
+        })),
+        skipDuplicates: true
+      })
     }
 
     const occurrences = sessions.flatMap((session) =>
