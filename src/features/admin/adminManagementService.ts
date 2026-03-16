@@ -430,7 +430,7 @@ export class AdminManagementService {
     }
 
     const sessionIdParams = sessionIds.map(
-      (sessionId) => PrismaClient.sql`${sessionId}`
+      (sessionId) => PrismaClient.sql`${sessionId}::uuid`
     )
     const canceledFilterSql = input.includeCanceledOccurrences
       ? PrismaClient.empty
