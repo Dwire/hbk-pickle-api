@@ -63,6 +63,7 @@ const errorAdminLeagueDetailMaxOccurrencesInvalid =
 const errorAdminLeagueDetailOccurrenceRangeInvalid =
   'occurrenceStart must be before or equal to occurrenceEnd'
 const errorActiveLeagueMembershipRequired = 'User not active in this league'
+const errorPlayerNotInOrganization = 'Player not in organization'
 
 const subSignupSummaryStatuses: SubSignupStatus[] = [
   subSignupStatusActive,
@@ -163,6 +164,7 @@ export type AdminCreatePlayerInput = {
 }
 
 export type AdminUpdatePlayerInput = {
+  organizationId: string
   phoneNumber?: string | null
   displayName?: string | null
   isOnApp?: boolean | null
@@ -504,13 +506,13 @@ export class AdminManagementService {
   private async archiveOtherActiveLeagues(
     tx: TransactionClient,
     organizationId: string,
-    leagueId: string
+    leagueId?: string
   ): Promise<void> {
     await tx.league.updateMany({
       where: {
         organizationId,
-        id: { not: leagueId },
-        status: leagueStatusActive
+        status: leagueStatusActive,
+        ...(leagueId ? { id: { not: leagueId } } : {})
       },
       data: {
         status: leagueStatusArchived
@@ -532,6 +534,10 @@ export class AdminManagementService {
         throw new Error(errorOrganizationMissing)
       }
 
+      if (leagueStatus === leagueStatusActive) {
+        await this.archiveOtherActiveLeagues(tx, input.organizationId)
+      }
+
       const createdLeague = await tx.league.create({
         data: {
           organizationId: input.organizationId,
@@ -542,14 +548,6 @@ export class AdminManagementService {
           timeZone: input.timeZone
         }
       })
-
-      if (createdLeague.status === leagueStatusActive) {
-        await this.archiveOtherActiveLeagues(
-          tx,
-          createdLeague.organizationId,
-          createdLeague.id
-        )
-      }
 
       return createdLeague
     })
@@ -568,9 +566,22 @@ export class AdminManagementService {
       input.startDate === undefined ? existingLeague.startDate : input.startDate
     const nextEndDate =
       input.endDate === undefined ? existingLeague.endDate : input.endDate
+    const nextStatus =
+      input.status === undefined ? existingLeague.status : input.status
     this.validateDateRange(nextStartDate, nextEndDate)
 
     return prisma.$transaction(async (tx) => {
+      if (
+        nextStatus === leagueStatusActive &&
+        existingLeague.status !== leagueStatusActive
+      ) {
+        await this.archiveOtherActiveLeagues(
+          tx,
+          existingLeague.organizationId,
+          existingLeague.id
+        )
+      }
+
       const updatedLeague = await tx.league.update({
         where: { id: leagueId },
         data: {
@@ -581,14 +592,6 @@ export class AdminManagementService {
           timeZone: input.timeZone
         }
       })
-
-      if (updatedLeague.status === leagueStatusActive) {
-        await this.archiveOtherActiveLeagues(
-          tx,
-          updatedLeague.organizationId,
-          updatedLeague.id
-        )
-      }
 
       return updatedLeague
     })
@@ -1776,6 +1779,35 @@ export class AdminManagementService {
 
     if (!existingUser) {
       throw new Error(errorPlayerMissing)
+    }
+
+    const playerInOrganization = await prisma.user.findFirst({
+      where: {
+        id: playerId,
+        OR: [
+          {
+            organizationMemberships: {
+              some: {
+                organizationId: input.organizationId
+              }
+            }
+          },
+          {
+            leagueMemberships: {
+              some: {
+                league: {
+                  organizationId: input.organizationId
+                }
+              }
+            }
+          }
+        ]
+      },
+      select: { id: true }
+    })
+
+    if (!playerInOrganization) {
+      throw new Error(errorPlayerNotInOrganization)
     }
 
     const normalizedPhoneNumber = input.phoneNumber

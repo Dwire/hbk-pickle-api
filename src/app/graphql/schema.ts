@@ -1055,6 +1055,7 @@ const resolvers = {
       await requireOrgAdminOrOwner(context, args.input.organizationId)
       const adminService = new AdminManagementService()
       return adminService.adminUpdatePlayer(args.playerId, {
+        organizationId: args.input.organizationId,
         phoneNumber: args.input.phoneNumber,
         displayName: args.input.displayName,
         isOnApp: args.input.isOnApp
