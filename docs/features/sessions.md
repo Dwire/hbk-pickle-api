@@ -28,6 +28,7 @@
 - Registration windows open 10am ET the day before and close at 7pm ET the day before (computed from UTC instants).
 - Sub signups stay open until the session ends (Eastern rules applied to UTC instants).
 - Assignments gate registration eligibility, while sub signups remain assignment-agnostic.
+- `sessionOccurrenceDetail` capability flags (`canRegister`, `canSub`) require active league membership so UI actions match mutation enforcement.
 - Session display state (PAST/LIVE/UPCOMING) compares Eastern wall-clock projections of UTC instants so sessions only go PAST after the listed end time.
 - `sessionsWeek(leagueId)` is league-scoped and requires league access at resolver level.
 - Canceled occurrences remain visible in `sessionsWeek` and include `occurrenceStatus = CANCELED`.

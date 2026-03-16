@@ -62,6 +62,7 @@ const errorAdminLeagueDetailMaxOccurrencesInvalid =
   'maxOccurrencesPerSession must be an integer greater than or equal to 1'
 const errorAdminLeagueDetailOccurrenceRangeInvalid =
   'occurrenceStart must be before or equal to occurrenceEnd'
+const errorActiveLeagueMembershipRequired = 'User not active in this league'
 
 const subSignupSummaryStatuses: SubSignupStatus[] = [
   subSignupStatusActive,
@@ -155,6 +156,7 @@ export type AdminPlayersInput = {
 }
 
 export type AdminCreatePlayerInput = {
+  leagueId: string
   phoneNumber: string
   displayName?: string | null
   isOnApp?: boolean | null
@@ -1726,12 +1728,40 @@ export class AdminManagementService {
 
   public async adminCreatePlayer(input: AdminCreatePlayerInput) {
     const normalizedPhoneNumber = normalizePhoneNumber(input.phoneNumber)
-    return prisma.user.create({
-      data: {
-        phoneNumber: normalizedPhoneNumber,
-        displayName: input.displayName ?? null,
-        isOnApp: input.isOnApp ?? false
-      }
+    const nextDisplayName =
+      input.displayName === undefined ? undefined : input.displayName
+    return prisma.$transaction(async (tx) => {
+      const user = await tx.user.upsert({
+        where: { phoneNumber: normalizedPhoneNumber },
+        create: {
+          phoneNumber: normalizedPhoneNumber,
+          displayName: input.displayName ?? null,
+          isOnApp: input.isOnApp ?? false
+        },
+        update: {
+          displayName: nextDisplayName,
+          isOnApp: input.isOnApp ?? undefined
+        }
+      })
+
+      await tx.leagueMembership.upsert({
+        where: {
+          leagueId_userId: {
+            leagueId: input.leagueId,
+            userId: user.id
+          }
+        },
+        create: {
+          leagueId: input.leagueId,
+          userId: user.id,
+          status: leagueMembershipStatusActive
+        },
+        update: {
+          status: leagueMembershipStatusActive
+        }
+      })
+
+      return user
     })
   }
 
@@ -1926,7 +1956,15 @@ export class AdminManagementService {
     const [occurrence, user] = await prisma.$transaction([
       prisma.sessionOccurrence.findUnique({
         where: { id: occurrenceId },
-        select: { id: true, status: true }
+        select: {
+          id: true,
+          status: true,
+          session: {
+            select: {
+              leagueId: true
+            }
+          }
+        }
       }),
       prisma.user.findUnique({ where: { id: userId }, select: { id: true } })
     ])
@@ -1937,6 +1975,22 @@ export class AdminManagementService {
 
     if (!user) {
       throw new Error(errorPlayerMissing)
+    }
+
+    const leagueMembership = await prisma.leagueMembership.findUnique({
+      where: {
+        leagueId_userId: {
+          leagueId: occurrence.session.leagueId,
+          userId
+        }
+      },
+      select: {
+        status: true
+      }
+    })
+
+    if (!leagueMembership || leagueMembership.status !== leagueMembershipStatusActive) {
+      throw new Error(errorActiveLeagueMembershipRequired)
     }
 
     return prisma.sessionRegistration.upsert({
@@ -1965,7 +2019,15 @@ export class AdminManagementService {
     const [occurrence, user, existingSubSignup] = await prisma.$transaction([
       prisma.sessionOccurrence.findUnique({
         where: { id: occurrenceId },
-        select: { id: true, status: true }
+        select: {
+          id: true,
+          status: true,
+          session: {
+            select: {
+              leagueId: true
+            }
+          }
+        }
       }),
       prisma.user.findUnique({ where: { id: userId }, select: { id: true } }),
       prisma.subSignup.findUnique({
@@ -1984,6 +2046,22 @@ export class AdminManagementService {
 
     if (!user) {
       throw new Error(errorPlayerMissing)
+    }
+
+    const leagueMembership = await prisma.leagueMembership.findUnique({
+      where: {
+        leagueId_userId: {
+          leagueId: occurrence.session.leagueId,
+          userId
+        }
+      },
+      select: {
+        status: true
+      }
+    })
+
+    if (!leagueMembership || leagueMembership.status !== leagueMembershipStatusActive) {
+      throw new Error(errorActiveLeagueMembershipRequired)
     }
 
     if (!existingSubSignup) {

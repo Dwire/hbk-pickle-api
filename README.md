@@ -20,13 +20,13 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - Organization tenancy with per-org league lifecycle (`League.organizationId`)
 - Organization-scoped admin roles via `OrganizationMembership.role` (`OWNER`, `ADMIN`)
 - League participation membership via `LeagueMembership.status` (`ACTIVE`, `REMOVED`)
-- Resolver-level org/league auth guards (no global `User.role`)
+- Resolver-level org/league auth guards (no global `User.role`) with request-scoped league/org resolution memoization
 - Admin CRUD APIs for leagues, session templates, session occurrences, slot assignments, and league memberships
 - Admin read APIs for org-scoped league lists, league detail/rules, occurrence rosters, and player search/filter pagination
 - Admin league detail nested query returns league rules, sessions, assignments, and occurrence summaries in one request with archived/canceled/date filters
 - Admin league detail occurrence rows include `attendingCount` (ATTENDING), `subCount` (ACTIVE + SELECTED), and `openSpots` (`max(capacity - attendingCount, 0)`)
-- Admin player management mutations for creating/updating users (`phoneNumber`, `displayName`, `isOnApp`)
-- Admin direct status control mutations for registrations and sub signups
+- Admin player management mutations where `adminCreatePlayer` requires `leagueId` and atomically ensures `LeagueMembership.ACTIVE`
+- Admin direct status control mutations for registrations and sub signups, gated by `LeagueMembership.ACTIVE`
 - Admin league rules mutations for league-scoped upsert and template-copy workflows
 - Phone-based slot assignment that creates placeholder users (`isOnApp = false`) until first verified login and auto-activates league membership
 - League lifecycle via `LeagueStatus` (`DRAFT`, `UPCOMING`, `ACTIVE`, `ARCHIVED`) with one `ACTIVE` league enforced per organization
@@ -42,7 +42,9 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - Session display state (PAST/LIVE/UPCOMING) derived server-side using Eastern wall-clock projections of UTC instants; live window opens 10am ET day before
 - Registration windows open 10am ET day before and close at 7pm ET day before; sub signups remain open until the session ends (Eastern rules applied to UTC instants)
 - Register/sub mutations require `LeagueMembership.ACTIVE` and reject attempts for canceled occurrences
+- `sessionOccurrenceDetail` capability flags (`canRegister`, `canSub`) require `LeagueMembership.ACTIVE` to match mutation enforcement
 - Scheduler ticks enqueue Bull sub-selection jobs from registration close through occurrence end; sub-selection worker recomputes selection and sends push notifications only for selection state changes
+- Reminder scheduler queues registration-close/session-start notifications only at or after warning time, batches attendee/device lookups, and dedupes once per `(userId, occurrenceId, kind)`
 - Scheduler tick and sub-selection worker process `ACTIVE` occurrences only
 - Scheduler ticks skip enqueueing duplicate in-flight sub-selection job ids so repeated ticks remain stable
 - sessionsWeek sub signup status returns ACTIVE or SELECTED sub signups for the current user
@@ -91,7 +93,7 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - Ensure Postgres and Redis are running.
 - Create the local database.
 - Sync schema without migrations (no shadow DB permissions).
-- If your DB user cannot create shadow DBs, apply SQL migrations with `just db-apply-org-membership-migration` then `just db-convert-ids-to-uuid`, and finally run `just db-push`.
+- If your DB user cannot create shadow DBs, apply SQL migrations with `just db-apply-org-membership-migration`, `just db-convert-ids-to-uuid`, and `just db-apply-reminder-once-migration`, then run `just db-push`.
 - Start the API.
 
 ### Local Debugging

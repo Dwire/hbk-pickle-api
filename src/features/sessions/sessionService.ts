@@ -46,6 +46,7 @@ const subSignupStatusActive: SubSignupStatus = 'ACTIVE'
 const subSignupStatusSelected: SubSignupStatus = 'SELECTED'
 const subSignupStatusReplaced: SubSignupStatus = 'REPLACED'
 const subSignupStatusCanceled: SubSignupStatus = 'CANCELED'
+const leagueMembershipStatusActive = 'ACTIVE'
 const subSignupSummaryStatuses: SubSignupStatus[] = [subSignupStatusActive, subSignupStatusSelected]
 const subSignupStatusCountsInitial: Record<SubSignupStatus, number> = {
   ACTIVE: 0,
@@ -776,19 +777,40 @@ export class SessionService {
     let canSub = false
 
     if (userId) {
-      const assignment = await prisma.slotAssignment.findFirst({
-        where: { userId, sessionId: occurrence.sessionId }
-      })
-      const isUserAssignedToSession = Boolean(assignment)
-      const hasRegistration = await prisma.sessionRegistration.findFirst({
-        where: { userId, occurrenceId, status: registrationStatusAttending }
-      })
-      const hasSubSignup = await prisma.subSignup.findFirst({
-        where: { userId, occurrenceId, status: { in: [subSignupStatusActive, subSignupStatusSelected] } }
-      })
+      const [leagueMembership, assignment, hasRegistration, hasSubSignup] =
+        await prisma.$transaction([
+          prisma.leagueMembership.findUnique({
+            where: {
+              leagueId_userId: {
+                leagueId: occurrence.session.leagueId,
+                userId
+              }
+            },
+            select: {
+              status: true
+            }
+          }),
+          prisma.slotAssignment.findFirst({
+            where: { userId, sessionId: occurrence.sessionId }
+          }),
+          prisma.sessionRegistration.findFirst({
+            where: { userId, occurrenceId, status: registrationStatusAttending }
+          }),
+          prisma.subSignup.findFirst({
+            where: { userId, occurrenceId, status: { in: [subSignupStatusActive, subSignupStatusSelected] } }
+          })
+        ])
 
-      canRegister = Boolean(isUserAssignedToSession && !hasRegistration)
-      canSub = Boolean(!isUserAssignedToSession && !hasSubSignup)
+      const hasActiveLeagueMembership =
+        leagueMembership?.status === leagueMembershipStatusActive
+      const isUserAssignedToSession = Boolean(assignment)
+
+      canRegister = Boolean(
+        hasActiveLeagueMembership && isUserAssignedToSession && !hasRegistration
+      )
+      canSub = Boolean(
+        hasActiveLeagueMembership && !isUserAssignedToSession && !hasSubSignup
+      )
       logger.info({ occurrenceId, userId, isUserAssignedToSession }, logResolvedSessionAssignmentStatus)
 
       return {

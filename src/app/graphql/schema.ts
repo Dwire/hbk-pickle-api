@@ -412,7 +412,7 @@ const typeDefs = `#graphql
   }
 
   input AdminCreatePlayerInput {
-    organizationId: ID!
+    leagueId: ID!
     phoneNumber: String!
     displayName: String
     isOnApp: Boolean
@@ -1022,7 +1022,7 @@ const resolvers = {
       _: unknown,
       args: {
         input: {
-          organizationId: string
+          leagueId: string
           phoneNumber: string
           displayName?: string | null
           isOnApp?: boolean | null
@@ -1030,9 +1030,10 @@ const resolvers = {
       },
       context: AppContext
     ) => {
-      await requireOrgAdminOrOwner(context, args.input.organizationId)
+      await requireLeagueAdminOrOwner(context, args.input.leagueId)
       const adminService = new AdminManagementService()
       return adminService.adminCreatePlayer({
+        leagueId: args.input.leagueId,
         phoneNumber: args.input.phoneNumber,
         displayName: args.input.displayName,
         isOnApp: args.input.isOnApp

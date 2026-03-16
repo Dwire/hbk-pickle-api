@@ -204,6 +204,12 @@ db-cleanup-org-membership-migration:
 db-convert-ids-to-uuid:
 	just db-execute prisma/migrations/202603160001_convert_ids_to_uuid/migration.sql
 
+# Add once-only reminder notification index and remove duplicate reminder rows.
+# Parameters: none.
+
+db-apply-reminder-once-migration:
+	just db-execute prisma/migrations/202603160002_notification_reminder_once/migration.sql
+
 # Generate Prisma client.
 
 prisma-generate:

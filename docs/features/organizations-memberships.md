@@ -18,6 +18,7 @@
 - prisma/migrations/202603150001_org_scoped_memberships/migration.sql: Data migration/backfill and partial unique index for one active league per organization.
 - prisma/migrations/202603160001_convert_ids_to_uuid/migration.sql: Casts all PK/FK id columns from `text` to Postgres `uuid`.
 - src/app/auth.ts: Org-admin and league-access guards.
+- src/app/context.ts: Request-scoped authz memoization container for org/league guard lookups.
 - src/app/graphql/schema.ts: League-scoped query arguments and org-scoped admin resolver checks.
 
 ## Data Flow
@@ -27,3 +28,5 @@
 - Member-facing reads allow either active league membership or org admin/owner membership.
 - Register/sub mutations require active league membership and do not grant bypass for org admins.
 - Slot assignment creation/update auto-upserts `LeagueMembership` to `ACTIVE`.
+- Admin player creation is league-scoped and auto-upserts `LeagueMembership` to `ACTIVE`.
+- Manual admin registration/sub status mutations require active league membership.
