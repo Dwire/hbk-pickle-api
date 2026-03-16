@@ -20,18 +20,20 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - Organization tenancy with per-org league lifecycle (`League.organizationId`)
 - Organization-scoped admin roles via `OrganizationMembership.role` (`OWNER`, `ADMIN`)
 - League participation membership via `LeagueMembership.status` (`ACTIVE`, `REMOVED`)
-- Resolver-level org/league auth guards (no global `User.role`) with request-scoped league/org resolution memoization
+- Resolver-level org/league auth guards with request-scoped league/org resolution memoization
+- GraphQL `User.role` derived from organization membership context (`OWNER`/`ADMIN`) with `PLAYER` fallback
 - Admin CRUD APIs for leagues, session templates, session occurrences, slot assignments, and league memberships
 - Admin read APIs for org-scoped league lists, league detail/rules, occurrence rosters, and player search/filter pagination
 - Admin league detail nested query returns league rules, sessions, assignments, and occurrence summaries in one request with archived/canceled/date filters
 - Admin league detail occurrence rows include `attendingCount` (ATTENDING), `subCount` (ACTIVE + SELECTED), and `openSpots` (`max(capacity - attendingCount, 0)`)
 - Admin player management mutations where `adminCreatePlayer` requires `leagueId` and atomically ensures `LeagueMembership.ACTIVE`
+- `adminUpdatePlayer` supports org-scoped role updates (`PLAYER`/`ADMIN`) with owner-protection constraints
 - Admin direct status control mutations for registrations and sub signups, gated by `LeagueMembership.ACTIVE`
 - Admin league rules mutations for league-scoped upsert and template-copy workflows
 - Phone-based slot assignment that creates placeholder users (`isOnApp = false`) until first verified login and auto-activates league membership
 - League lifecycle via `LeagueStatus` (`DRAFT`, `UPCOMING`, `ACTIVE`, `ARCHIVED`) with one `ACTIVE` league enforced per organization
 - Session lifecycle via `SessionStatus` (`ACTIVE`, `ARCHIVED`)
-- Weekly (Eastern) session occurrences listing by explicit `leagueId` with user status summaries derived from UTC instants
+- Weekly (Eastern) session occurrences listing by optional `leagueId`, with automatic effective-league resolution when omitted
 - Session occurrences have lifecycle status (`ACTIVE`/`CANCELED`, default `ACTIVE`) and `sessionsWeek` exposes `occurrenceStatus` while still returning canceled occurrences
 - Admin occurrence create/update validates that `startsAt`/`endsAt` remain within the parent league `startDate`/`endDate` bounds
 - Admin occurrence delete auto-cancels when participation history exists; otherwise hard-deletes
@@ -52,7 +54,7 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - Sub ordering uses signup queue time (`signedUpAt`); cancel + re-sub places the user at the end of the sub list
 - sessionsWeek attendingCount reflects ATTENDING registrations only (canceled/declined excluded)
 - sessionsWeek returns `registeredUsers` and `subUsers` participant objects (`id`, `displayName`, `profileImageUrl`) for ATTENDING registrations and ACTIVE/SELECTED sub signups
-- Rules and sessions member queries are explicit `leagueId` contracts with league-access enforcement
+- Member `league`, `rules`, and `sessionsWeek` queries support explicit `leagueId` or effective-league fallback with access enforcement
 - Notification scheduling and delivery
 - Debuggable backend runtime via `just run-debug` / `just run-debug-brk` (Node inspector + auto-reload)
 - Combined job monitor via `just jobs-watch` (both workers + repeating scheduler tick in one terminal)

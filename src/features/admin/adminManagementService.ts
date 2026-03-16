@@ -64,6 +64,15 @@ const errorAdminLeagueDetailOccurrenceRangeInvalid =
   'occurrenceStart must be before or equal to occurrenceEnd'
 const errorActiveLeagueMembershipRequired = 'User not active in this league'
 const errorPlayerNotInOrganization = 'Player not in organization'
+const errorOwnerRoleChangeNotAllowed =
+  'Cannot change role for an organization owner with this mutation'
+const errorOwnerRoleAssignmentNotAllowed =
+  'Cannot assign OWNER role with this mutation'
+const organizationMembershipRoleOwner = 'OWNER'
+const organizationMembershipRoleAdmin = 'ADMIN'
+const userRolePlayer = 'PLAYER'
+const userRoleAdmin = 'ADMIN'
+const userRoleOwner = 'OWNER'
 
 const subSignupSummaryStatuses: SubSignupStatus[] = [
   subSignupStatusActive,
@@ -168,7 +177,10 @@ export type AdminUpdatePlayerInput = {
   phoneNumber?: string | null
   displayName?: string | null
   isOnApp?: boolean | null
+  role?: AdminUserRole | null
 }
+
+export type AdminUserRole = 'PLAYER' | 'ADMIN' | 'OWNER'
 
 export type AdminSetLeagueMembershipInput = {
   leagueId: string
@@ -182,6 +194,7 @@ export type AdminOccurrenceRosterEntry = {
     phoneNumber: string
     displayName: string | null
     isOnApp: boolean
+    roleContextLeagueId?: string
   }
   status: string
   selectionRank?: number | null
@@ -1011,7 +1024,8 @@ export class AdminManagementService {
         id: registration.user.id,
         phoneNumber: registration.user.phoneNumber,
         displayName: registration.user.displayName,
-        isOnApp: registration.user.isOnApp
+        isOnApp: registration.user.isOnApp,
+        roleContextLeagueId: occurrence.session.leagueId
       },
       status: registration.status
     }))
@@ -1021,7 +1035,8 @@ export class AdminManagementService {
         id: subSignup.user.id,
         phoneNumber: subSignup.user.phoneNumber,
         displayName: subSignup.user.displayName,
-        isOnApp: subSignup.user.isOnApp
+        isOnApp: subSignup.user.isOnApp,
+        roleContextLeagueId: occurrence.session.leagueId
       },
       status: subSignup.status,
       selectionRank: subSignup.selectionRank
@@ -1815,13 +1830,70 @@ export class AdminManagementService {
       : undefined
     const nextDisplayName =
       input.displayName === undefined ? undefined : input.displayName
-    return prisma.user.update({
-      where: { id: playerId },
-      data: {
-        phoneNumber: normalizedPhoneNumber,
-        displayName: nextDisplayName,
-        isOnApp: input.isOnApp ?? undefined
+
+    return prisma.$transaction(async (tx) => {
+      const updatedUser = await tx.user.update({
+        where: { id: playerId },
+        data: {
+          phoneNumber: normalizedPhoneNumber,
+          displayName: nextDisplayName,
+          isOnApp: input.isOnApp ?? undefined
+        }
+      })
+
+      if (input.role !== undefined && input.role !== null) {
+        if (input.role === userRoleOwner) {
+          throw new Error(errorOwnerRoleAssignmentNotAllowed)
+        }
+
+        const existingMembership = await tx.organizationMembership.findUnique({
+          where: {
+            organizationId_userId: {
+              organizationId: input.organizationId,
+              userId: playerId
+            }
+          },
+          select: {
+            role: true
+          }
+        })
+
+        if (existingMembership?.role === organizationMembershipRoleOwner) {
+          throw new Error(errorOwnerRoleChangeNotAllowed)
+        }
+
+        if (input.role === userRoleAdmin) {
+          await tx.organizationMembership.upsert({
+            where: {
+              organizationId_userId: {
+                organizationId: input.organizationId,
+                userId: playerId
+              }
+            },
+            create: {
+              organizationId: input.organizationId,
+              userId: playerId,
+              role: organizationMembershipRoleAdmin
+            },
+            update: {
+              role: organizationMembershipRoleAdmin
+            }
+          })
+        }
+
+        if (input.role === userRolePlayer && existingMembership) {
+          await tx.organizationMembership.delete({
+            where: {
+              organizationId_userId: {
+                organizationId: input.organizationId,
+                userId: playerId
+              }
+            }
+          })
+        }
       }
+
+      return updatedUser
     })
   }
 

@@ -34,6 +34,10 @@
 - Session detail occurrence rows expose `attendingCount` (`ATTENDING` registrations), `subCount` (`ACTIVE` + `SELECTED` sub signups), and `openSpots` (`max(capacity - attendingCount, 0)`).
 - Slot assignment accepts phone numbers, normalizes to E.164, upserts users, and auto-upserts `LeagueMembership` to `ACTIVE`.
 - `adminCreatePlayer` is league-scoped (`leagueId` required), upserts/creates the user by phone, and upserts `LeagueMembership` to `ACTIVE` in the same transaction.
+- `adminUpdatePlayer` can update org-scoped role intent via `input.role`:
+  - `ADMIN`: upsert `OrganizationMembership` with role `ADMIN`
+  - `PLAYER`: remove non-owner org membership
+  - `OWNER`: rejected for assignment, and existing owners cannot be changed via this mutation
 - `adminSetLeagueMembership` toggles `LeagueMembership.status` (`ACTIVE`/`REMOVED`) for manual eligibility control.
 - `adminSetRegistration` and `adminSetSubSignup` require `LeagueMembership.status = ACTIVE` for the occurrence's league.
 - League delete hard-cascades dependent sessions, occurrences, assignments, memberships, registrations, sub signups, notifications, and rules.

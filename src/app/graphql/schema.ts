@@ -6,7 +6,8 @@ import type { GraphQLScalarType, ValueNode } from 'graphql'
 import { AdminManagementService } from '../../features/admin/adminManagementService.js'
 import type {
   AdminLeagueDetailInput,
-  AdminLeagueDetailSession
+  AdminLeagueDetailSession,
+  AdminUserRole
 } from '../../features/admin/adminManagementService.js'
 import { AuthService } from '../../features/auth/authService.js'
 import { RegistrationService } from '../../features/registrations/registrationService.js'
@@ -26,11 +27,14 @@ import type {
 import type { AppContext } from '../context.js'
 import {
   requireAuth,
-  requireLeagueAccess,
+  resolveEffectiveLeagueAccess,
+  resolveLeagueOrganizationId,
   requireLeagueAdminOrOwner,
   requireOccurrenceAdminOrOwner,
   requireOccurrenceLeagueAccess,
   requireOrgAdminOrOwner,
+  resolveUserRoleForOrganization,
+  resolveUserRoleWithoutContext,
   requireSessionAdminOrOwner,
   requireSlotAssignmentAdminOrOwner
 } from '../auth.js'
@@ -86,6 +90,95 @@ utcDateTimeScalar.parseLiteral = (ast: ValueNode): Date => {
   return coerceUtcDateTime(ast.value)
 }
 
+const userRolePlayer = 'PLAYER'
+const userRoleAdmin = 'ADMIN'
+const userRoleOwner = 'OWNER'
+const roleContextOrganizationIdField = 'roleContextOrganizationId'
+const roleContextLeagueIdField = 'roleContextLeagueId'
+
+type UserRole = 'PLAYER' | 'ADMIN' | 'OWNER'
+
+type UserRoleContext = {
+  roleContextOrganizationId?: string
+  roleContextLeagueId?: string
+}
+
+type UserResolverParent = {
+  id: string
+  role?: string | null
+  roleContextOrganizationId?: string | null
+  roleContextLeagueId?: string | null
+}
+
+const normalizeLeagueIdArgument = (
+  leagueId: string | null | undefined
+): string | null => {
+  if (typeof leagueId !== 'string') {
+    return null
+  }
+
+  const trimmedLeagueId = leagueId.trim()
+  return trimmedLeagueId.length > 0 ? trimmedLeagueId : null
+}
+
+const resolveMemberLeagueAccess = async (
+  context: AppContext,
+  leagueId: string | null | undefined
+) => {
+  return resolveEffectiveLeagueAccess(context, normalizeLeagueIdArgument(leagueId))
+}
+
+const isUserRole = (value: unknown): value is UserRole => {
+  return (
+    value === userRolePlayer || value === userRoleAdmin || value === userRoleOwner
+  )
+}
+
+const attachUserRoleContext = <T extends { id: string }>(
+  user: T,
+  roleContext: UserRoleContext
+): T & UserRoleContext => {
+  return {
+    ...user,
+    ...roleContext
+  }
+}
+
+const resolveUserRole = async (
+  user: UserResolverParent,
+  context: AppContext
+): Promise<UserRole> => {
+  if (isUserRole(user.role)) {
+    return user.role
+  }
+
+  const contextOrganizationId = user[roleContextOrganizationIdField]
+  if (contextOrganizationId) {
+    return resolveUserRoleForOrganization(context, user.id, contextOrganizationId)
+  }
+
+  const contextLeagueId = user[roleContextLeagueIdField]
+  if (contextLeagueId) {
+    const organizationId = await resolveLeagueOrganizationId(context, contextLeagueId)
+    return resolveUserRoleForOrganization(context, user.id, organizationId)
+  }
+
+  if (context.request.userId && context.request.userId === user.id) {
+    try {
+      const effectiveLeagueAccess = await resolveEffectiveLeagueAccess(context, null)
+      return resolveUserRoleForOrganization(
+        context,
+        user.id,
+        effectiveLeagueAccess.organizationId
+      )
+    } catch {
+      return resolveUserRoleWithoutContext(context, user.id)
+    }
+  }
+
+  return resolveUserRoleWithoutContext(context, user.id)
+}
+
 const typeDefs = `#graphql
   scalar DateTime
 
@@ -99,6 +192,12 @@ const typeDefs = `#graphql
   enum LeagueMembershipStatus {
     ACTIVE
     REMOVED
+  }
+
+  enum UserRole {
+    PLAYER
+    ADMIN
+    OWNER
   }
 
   enum SessionStatus {
@@ -145,6 +244,7 @@ const typeDefs = `#graphql
     phoneNumber: String!
     displayName: String
     isOnApp: Boolean!
+    role: UserRole!
   }
 
   type ProfileStatsLeague {
@@ -423,6 +523,7 @@ const typeDefs = `#graphql
     phoneNumber: String
     displayName: String
     isOnApp: Boolean
+    role: UserRole
   }
 
   input AdminSetLeagueMembershipInput {
@@ -446,9 +547,9 @@ const typeDefs = `#graphql
 
   type Query {
     me: User
-    league(leagueId: ID!): League
-    rules(leagueId: ID!): [LeagueRule!]!
-    sessionsWeek(leagueId: ID!): [Session!]!
+    league(leagueId: ID): League
+    rules(leagueId: ID): [LeagueRule!]!
+    sessionsWeek(leagueId: ID): [Session!]!
     sessionOccurrenceDetail(occurrenceId: ID!): SessionOccurrenceDetail!
     profileStats: ProfileStats!
     adminLeagues(organizationId: ID!, status: LeagueStatus, search: String, pagination: AdminPaginationInput): AdminLeaguesResult!
@@ -499,6 +600,11 @@ const typeDefs = `#graphql
 
 const resolvers = {
   DateTime: utcDateTimeScalar,
+  User: {
+    role: async (user: UserResolverParent, _: unknown, context: AppContext) => {
+      return resolveUserRole(user, context)
+    }
+  },
   Session: {
     registeredUsers: (session: { registeredUsers?: unknown[] | null }) =>
       session.registeredUsers ?? [],
@@ -608,28 +714,57 @@ const resolvers = {
       assignment.user.isOnApp
   },
   Query: {
-    me: (_: unknown, __: unknown, context: AppContext) => {
-      return context.request.userId
-        ? context.prisma.user.findUnique({
-            where: { id: context.request.userId }
-          })
-        : null
+    me: async (_: unknown, __: unknown, context: AppContext) => {
+      if (!context.request.userId) {
+        return null
+      }
+
+      const user = await context.prisma.user.findUnique({
+        where: { id: context.request.userId }
+      })
+      if (!user) {
+        return null
+      }
+
+      try {
+        const leagueAccess = await resolveMemberLeagueAccess(context, null)
+        return attachUserRoleContext(user, {
+          [roleContextLeagueIdField]: leagueAccess.leagueId
+        })
+      } catch {
+        return user
+      }
     },
-    league: async (_: unknown, args: { leagueId: string }, context: AppContext) => {
-      await requireLeagueAccess(context, args.leagueId)
+    league: async (
+      _: unknown,
+      args: { leagueId?: string | null },
+      context: AppContext
+    ) => {
+      const leagueAccess = await resolveMemberLeagueAccess(context, args.leagueId)
       return context.prisma.league.findUnique({
-        where: { id: args.leagueId }
+        where: { id: leagueAccess.leagueId }
       })
     },
-    rules: async (_: unknown, args: { leagueId: string }, context: AppContext) => {
-      await requireLeagueAccess(context, args.leagueId)
+    rules: async (
+      _: unknown,
+      args: { leagueId?: string | null },
+      context: AppContext
+    ) => {
+      const leagueAccess = await resolveMemberLeagueAccess(context, args.leagueId)
       const ruleService = new RuleService()
-      return ruleService.listRules(args.leagueId)
+      return ruleService.listRules(leagueAccess.leagueId)
     },
-    sessionsWeek: async (_: unknown, args: { leagueId: string }, context: AppContext) => {
-      await requireLeagueAccess(context, args.leagueId)
+    sessionsWeek: async (
+      _: unknown,
+      args: { leagueId?: string | null },
+      context: AppContext
+    ) => {
+      const leagueAccess = await resolveMemberLeagueAccess(context, args.leagueId)
       const sessionService = new SessionService()
-      return sessionService.listSessionsWeek(args.leagueId, context.request.userId)
+      return sessionService.listSessionsWeek(
+        leagueAccess.leagueId,
+        context.request.userId
+      )
     },
     sessionOccurrenceDetail: async (
       _: unknown,
@@ -703,12 +838,20 @@ const resolvers = {
     ) => {
       await requireOrgAdminOrOwner(context, args.organizationId)
       const adminService = new AdminManagementService()
-      return adminService.adminPlayers({
+      const result = await adminService.adminPlayers({
         organizationId: args.organizationId,
         search: args.search,
         isOnApp: args.isOnApp,
         pagination: args.pagination
       })
+      return {
+        ...result,
+        items: result.items.map((item) =>
+          attachUserRoleContext(item, {
+            [roleContextOrganizationIdField]: args.organizationId
+          })
+        )
+      }
     },
     adminOccurrenceRoster: async (
       _: unknown,
@@ -1032,11 +1175,14 @@ const resolvers = {
     ) => {
       await requireLeagueAdminOrOwner(context, args.input.leagueId)
       const adminService = new AdminManagementService()
-      return adminService.adminCreatePlayer({
+      const user = await adminService.adminCreatePlayer({
         leagueId: args.input.leagueId,
         phoneNumber: args.input.phoneNumber,
         displayName: args.input.displayName,
         isOnApp: args.input.isOnApp
+      })
+      return attachUserRoleContext(user, {
+        [roleContextLeagueIdField]: args.input.leagueId
       })
     },
     adminUpdatePlayer: async (
@@ -1048,17 +1194,22 @@ const resolvers = {
           phoneNumber?: string | null
           displayName?: string | null
           isOnApp?: boolean | null
+          role?: AdminUserRole | null
         }
       },
       context: AppContext
     ) => {
       await requireOrgAdminOrOwner(context, args.input.organizationId)
       const adminService = new AdminManagementService()
-      return adminService.adminUpdatePlayer(args.playerId, {
+      const user = await adminService.adminUpdatePlayer(args.playerId, {
         organizationId: args.input.organizationId,
         phoneNumber: args.input.phoneNumber,
         displayName: args.input.displayName,
-        isOnApp: args.input.isOnApp
+        isOnApp: args.input.isOnApp,
+        role: args.input.role
+      })
+      return attachUserRoleContext(user, {
+        [roleContextOrganizationIdField]: args.input.organizationId
       })
     },
     adminSetLeagueMembership: async (

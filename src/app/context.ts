@@ -17,6 +17,7 @@ export type RequestContext = {
     leagueIdByOccurrenceId: Map<string, string>
     leagueIdBySlotAssignmentId: Map<string, string>
     leagueAccessByLeagueId: Map<string, boolean>
+    userRoleByOrgAndUser: Map<string, 'PLAYER' | 'ADMIN' | 'OWNER'>
   }
 }
 
@@ -77,7 +78,8 @@ export const buildContext = (request: Request): AppContext => {
         leagueIdBySessionId: new Map<string, string>(),
         leagueIdByOccurrenceId: new Map<string, string>(),
         leagueIdBySlotAssignmentId: new Map<string, string>(),
-        leagueAccessByLeagueId: new Map<string, boolean>()
+        leagueAccessByLeagueId: new Map<string, boolean>(),
+        userRoleByOrgAndUser: new Map<string, 'PLAYER' | 'ADMIN' | 'OWNER'>()
       }
     }
   }

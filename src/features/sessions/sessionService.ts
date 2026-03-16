@@ -99,6 +99,7 @@ type SessionRosterEntry = {
     phoneNumber: string
     displayName: string | null
     isOnApp: boolean
+    roleContextLeagueId?: string
   }
   status: string
   selectionRank?: number | null
@@ -754,7 +755,8 @@ export class SessionService {
         id: registration.user.id,
         phoneNumber: registration.user.phoneNumber,
         displayName: registration.user.displayName,
-        isOnApp: registration.user.isOnApp
+        isOnApp: registration.user.isOnApp,
+        roleContextLeagueId: occurrence.session.leagueId
       },
       status: registration.status
     }))
@@ -764,7 +766,8 @@ export class SessionService {
         id: signup.user.id,
         phoneNumber: signup.user.phoneNumber,
         displayName: signup.user.displayName,
-        isOnApp: signup.user.isOnApp
+        isOnApp: signup.user.isOnApp,
+        roleContextLeagueId: occurrence.session.leagueId
       },
       status: signup.status,
       selectionRank: signup.selectionRank

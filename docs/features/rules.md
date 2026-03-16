@@ -6,7 +6,7 @@
 
 ## Core API
 
-- `rules(leagueId)` for member-facing reads with league access checks.
+- `rules(leagueId)` for member-facing reads, with optional `leagueId` and league access checks.
 - `adminUpsertLeagueRule` by `leagueId` + optional `ruleId` + `order`.
 - `adminCopyLeagueRulesFromTemplate` for copying ordered rules between leagues.
 
@@ -17,6 +17,6 @@
 
 ## Data Flow
 
-- Rules query receives `leagueId` directly and lists rules ordered by `order`.
+- Rules query uses explicit `leagueId` when provided, otherwise resolves the caller's effective active league, then lists rules ordered by `order`.
 - Resolver-level access checks enforce member/admin visibility for the target league.
 - Admin rule mutations require org admin/owner access to the target league.

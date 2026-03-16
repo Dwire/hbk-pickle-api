@@ -17,7 +17,19 @@ const occurrenceMissingMessage = 'Session occurrence missing'
 const slotAssignmentMissingMessage = 'Slot assignment missing'
 const leagueAccessRequiredMessage = 'League access required'
 const leagueMembershipStatusActive = 'ACTIVE'
+const leagueStatusActive = 'ACTIVE'
+const multipleActiveLeaguesMessage = 'Multiple active leagues found; provide leagueId'
 const orgRolesWithAdminAccess: OrganizationMembershipRole[] = ['OWNER', 'ADMIN']
+const userRolePlayer = 'PLAYER'
+const userRoleAdmin = 'ADMIN'
+const userRoleOwner = 'OWNER'
+
+type LeagueAccessCandidate = {
+  leagueId: string
+  organizationId: string
+}
+
+export type UserRole = 'PLAYER' | 'ADMIN' | 'OWNER'
 
 export const requireAuth = (context: AppContext): string => {
   if (context.request.userId) {
@@ -80,7 +92,10 @@ const hasOrgAdminOrOwnerAccess = async (
   return hasAccess
 }
 
-const resolveLeagueOrganizationId = async (context: AppContext, leagueId: string): Promise<string> => {
+export const resolveLeagueOrganizationId = async (
+  context: AppContext,
+  leagueId: string
+): Promise<string> => {
   const cachedOrganizationId = context.request.authzCache.orgIdByLeagueId.get(leagueId)
   if (cachedOrganizationId) {
     return cachedOrganizationId
@@ -97,6 +112,185 @@ const resolveLeagueOrganizationId = async (context: AppContext, leagueId: string
 
   context.request.authzCache.orgIdByLeagueId.set(leagueId, league.organizationId)
   return league.organizationId
+}
+
+const dedupeLeagueCandidates = (
+  candidates: LeagueAccessCandidate[]
+): LeagueAccessCandidate[] => {
+  const candidatesByLeagueId = new Map<string, LeagueAccessCandidate>()
+  candidates.forEach((candidate) => {
+    if (!candidatesByLeagueId.has(candidate.leagueId)) {
+      candidatesByLeagueId.set(candidate.leagueId, candidate)
+    }
+  })
+  return Array.from(candidatesByLeagueId.values())
+}
+
+const resolveLeagueCandidatesFromActiveMemberships = async (
+  context: AppContext,
+  userId: string
+): Promise<LeagueAccessCandidate[]> => {
+  const memberships = await context.prisma.leagueMembership.findMany({
+    where: {
+      userId,
+      status: leagueMembershipStatusActive,
+      league: { status: leagueStatusActive }
+    },
+    select: {
+      leagueId: true,
+      league: {
+        select: {
+          organizationId: true
+        }
+      }
+    }
+  })
+
+  return memberships.map((membership) => ({
+    leagueId: membership.leagueId,
+    organizationId: membership.league.organizationId
+  }))
+}
+
+const resolveLeagueCandidatesFromOrgAdminMemberships = async (
+  context: AppContext,
+  userId: string
+): Promise<LeagueAccessCandidate[]> => {
+  const memberships = await context.prisma.organizationMembership.findMany({
+    where: {
+      userId,
+      role: { in: orgRolesWithAdminAccess }
+    },
+    select: {
+      organizationId: true,
+      organization: {
+        select: {
+          leagues: {
+            where: { status: leagueStatusActive },
+            select: {
+              id: true,
+              organizationId: true
+            }
+          }
+        }
+      }
+    }
+  })
+
+  return memberships.flatMap((membership) =>
+    membership.organization.leagues.map((league) => ({
+      leagueId: league.id,
+      organizationId: league.organizationId
+    }))
+  )
+}
+
+export const resolveEffectiveLeagueAccess = async (
+  context: AppContext,
+  leagueId: string | null | undefined
+): Promise<{ userId: string; leagueId: string; organizationId: string }> => {
+  const userId = requireAuth(context)
+  await requireExistingUser(context, userId)
+
+  if (leagueId) {
+    await requireLeagueAccess(context, leagueId)
+    const organizationId = await resolveLeagueOrganizationId(context, leagueId)
+    return { userId, leagueId, organizationId }
+  }
+
+  const activeLeagueMembershipCandidates =
+    await resolveLeagueCandidatesFromActiveMemberships(context, userId)
+  let candidates = dedupeLeagueCandidates(activeLeagueMembershipCandidates)
+
+  if (candidates.length === 0) {
+    const orgAdminCandidates = await resolveLeagueCandidatesFromOrgAdminMemberships(
+      context,
+      userId
+    )
+    candidates = dedupeLeagueCandidates(orgAdminCandidates)
+  }
+
+  if (candidates.length === 0) {
+    throw new Error(leagueAccessRequiredMessage)
+  }
+
+  if (candidates.length > 1) {
+    throw new Error(multipleActiveLeaguesMessage)
+  }
+
+  const [candidate] = candidates
+  context.request.authzCache.leagueAccessByLeagueId.set(candidate.leagueId, true)
+  context.request.authzCache.orgIdByLeagueId.set(
+    candidate.leagueId,
+    candidate.organizationId
+  )
+  return {
+    userId,
+    leagueId: candidate.leagueId,
+    organizationId: candidate.organizationId
+  }
+}
+
+const mapOrgMembershipRoleToUserRole = (
+  role: OrganizationMembershipRole | null
+): UserRole => {
+  if (role === userRoleOwner) {
+    return userRoleOwner
+  }
+
+  if (role === userRoleAdmin) {
+    return userRoleAdmin
+  }
+
+  return userRolePlayer
+}
+
+export const resolveUserRoleForOrganization = async (
+  context: AppContext,
+  userId: string,
+  organizationId: string
+): Promise<UserRole> => {
+  const cacheKey = `${organizationId}:${userId}`
+  const cachedRole = context.request.authzCache.userRoleByOrgAndUser.get(cacheKey)
+  if (cachedRole) {
+    return cachedRole
+  }
+
+  const membership = await context.prisma.organizationMembership.findUnique({
+    where: {
+      organizationId_userId: {
+        organizationId,
+        userId
+      }
+    },
+    select: {
+      role: true
+    }
+  })
+
+  const resolvedRole = mapOrgMembershipRoleToUserRole(membership?.role ?? null)
+  context.request.authzCache.userRoleByOrgAndUser.set(cacheKey, resolvedRole)
+  return resolvedRole
+}
+
+export const resolveUserRoleWithoutContext = async (
+  context: AppContext,
+  userId: string
+): Promise<UserRole> => {
+  const memberships = await context.prisma.organizationMembership.findMany({
+    where: { userId },
+    select: { role: true }
+  })
+
+  if (memberships.some((membership) => membership.role === userRoleOwner)) {
+    return userRoleOwner
+  }
+
+  if (memberships.some((membership) => membership.role === userRoleAdmin)) {
+    return userRoleAdmin
+  }
+
+  return userRolePlayer
 }
 
 const resolveSessionLeagueId = async (context: AppContext, sessionId: string): Promise<string> => {
