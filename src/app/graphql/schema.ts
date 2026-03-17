@@ -571,6 +571,7 @@ const typeDefs = `#graphql
     verifyPhoneCode(phoneNumber: String!, code: String!): AuthPayload!
     registerDevice(token: String!, platform: String!): Boolean!
     updateDisplayName(displayName: String!): User!
+    deleteMyAccount: Boolean!
 
     registerForSession(occurrenceId: ID!): SessionRegistration!
     cancelRegistration(occurrenceId: ID!): SessionRegistration!
@@ -928,6 +929,16 @@ const resolvers = {
       const userId = requireAuth(context)
       const service = new UserService()
       return service.upsertDisplayName(userId, args.displayName)
+    },
+    deleteMyAccount: async (
+      _: unknown,
+      __: unknown,
+      context: AppContext
+    ) => {
+      const userId = requireAuth(context)
+      const service = new UserService()
+      await service.deleteMyAccount(userId)
+      return true
     },
     registerForSession: async (
       _: unknown,
