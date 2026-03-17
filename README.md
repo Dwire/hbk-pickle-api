@@ -17,6 +17,7 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - Auth requests log Twilio Verify send/check outcomes for debugging
 - Auth context derives user identity from bearer JWTs for resolvers
 - Authenticated users can update their display name via GraphQL
+- Authenticated users can permanently delete their account with FK-safe transactional cleanup and sole org owner/admin safeguards
 - Organization tenancy with per-org league lifecycle (`League.organizationId`)
 - Organization-scoped admin roles via `OrganizationMembership.role` (`OWNER`, `ADMIN`)
 - Authenticated `organizations` query lists the organizations where the caller has membership
@@ -34,7 +35,7 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - Phone-based slot assignment that creates placeholder users (`isOnApp = false`) until first verified login and auto-activates league membership
 - League lifecycle via `LeagueStatus` (`DRAFT`, `UPCOMING`, `ACTIVE`, `ARCHIVED`) with one `ACTIVE` league enforced per organization
 - Session lifecycle via `SessionStatus` (`ACTIVE`, `ARCHIVED`)
-- Weekly (Eastern) session occurrences listing by optional `leagueId`, with automatic effective-league resolution when omitted
+- Weekly (Eastern) session occurrences listing by optional `leagueId`, with automatic effective-league resolution when omitted and Monday preview rows visible from Sunday 8am ET
 - Session occurrences have lifecycle status (`ACTIVE`/`CANCELED`, default `ACTIVE`) and `sessionsWeek` exposes `occurrenceStatus` while still returning canceled occurrences
 - Admin occurrence create/update validates that `startsAt`/`endsAt` remain within the parent league `startDate`/`endDate` bounds
 - Admin occurrence delete auto-cancels when participation history exists; otherwise hard-deletes
@@ -88,7 +89,7 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 
 ## Documentation
 
-- docs/features: One doc per feature module with responsibilities and data flow (see organizations-memberships.md for tenancy/auth model, utc-time.md for UTC contract, dev-debugging.md for local debugger workflow, and jobs-watch.md for local worker+ticker orchestration)
+- docs/features: One doc per feature module with responsibilities and data flow (see organizations-memberships.md for tenancy/auth model, account-deletion.md for self-serve hard delete semantics, utc-time.md for UTC contract, dev-debugging.md for local debugger workflow, and jobs-watch.md for local worker+ticker orchestration)
 
 ## Local Development (Postman)
 

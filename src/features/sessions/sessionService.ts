@@ -3,7 +3,12 @@ import type { SessionOccurrenceGetPayload } from '../../generated/prisma/models/
 import { notificationQueue } from '../../integrations/bull/queue.js'
 import { prisma } from '../../shared/prisma.js'
 import { logger } from '../../shared/logger.js'
-import { registrationCloseHour, registrationOpenHour, sessionCapacityDefault } from '../../shared/constants.js'
+import {
+  registrationCloseHour,
+  registrationOpenHour,
+  sessionCapacityDefault,
+  sessionsWeekPreviewLeadMinutes
+} from '../../shared/constants.js'
 import {
   easternTimeZone,
   easternZonedTimeToUtc,
@@ -48,6 +53,13 @@ const subSignupStatusReplaced: SubSignupStatus = 'REPLACED'
 const subSignupStatusCanceled: SubSignupStatus = 'CANCELED'
 const leagueMembershipStatusActive = 'ACTIVE'
 const subSignupSummaryStatuses: SubSignupStatus[] = [subSignupStatusActive, subSignupStatusSelected]
+const millisecondsPerMinute = 60_000
+const nextDayOffset = 1
+const dayEndHour = 23
+const dayEndMinute = 59
+const dayEndSecond = 59
+const dayEndMillisecond = 999
+const logFilteredSessionsWeekForPreviewWindow = 'Filtered sessions week for monday preview window'
 const subSignupStatusCountsInitial: Record<SubSignupStatus, number> = {
   ACTIVE: 0,
   SELECTED: 0,
@@ -291,16 +303,56 @@ export class SessionService {
   /**
    * Lists session occurrences for the current Eastern week.
    * - Computes Monday 00:00 through Sunday 23:59:59.999 (Eastern).
-   * - Delegates to range-based listing for the resulting UTC window.
+   * - Extends query bounds through next Monday end-of-day (Eastern) for preview eligibility.
+   * - Includes out-of-week rows only when now is within 2 hours of registration open.
    * - Used by the sessionsWeek query.
    */
   public async listSessionsWeek(
     leagueId: string,
     userId?: string | null
   ): Promise<SessionOccurrenceSummary[]> {
-    const { start, end } = getEasternWeekRangeUtc(new Date())
-    logger.info({ start, end, timeZone: easternTimeZone }, 'Listing sessions for eastern week')
-    return this.listSessions(start, end, leagueId, userId)
+    const now = new Date()
+    const { start, end } = getEasternWeekRangeUtc(now)
+    const weekEndParts = getEasternDateTimeParts(end)
+    const nextMondayDateParts = shiftDateByDays(
+      {
+        year: weekEndParts.year,
+        month: weekEndParts.month,
+        day: weekEndParts.day
+      },
+      nextDayOffset
+    )
+    const extendedEnd = easternZonedTimeToUtc({
+      ...nextMondayDateParts,
+      hour: dayEndHour,
+      minute: dayEndMinute,
+      second: dayEndSecond,
+      millisecond: dayEndMillisecond
+    })
+    logger.info({ start, end, extendedEnd, timeZone: easternTimeZone }, 'Listing sessions for eastern week')
+    const summaries = await this.listSessions(start, extendedEnd, leagueId, userId)
+    const previewLeadMilliseconds = sessionsWeekPreviewLeadMinutes * millisecondsPerMinute
+    const filteredSummaries = summaries.filter((summary) => {
+      const isWithinWeekRange = summary.startTime >= start && summary.startTime <= end
+      if (isWithinWeekRange) {
+        return true
+      }
+
+      const previewAvailableAt = new Date(summary.registrationOpenAt.getTime() - previewLeadMilliseconds)
+      return now >= previewAvailableAt
+    })
+    logger.info(
+      {
+        weekStart: start,
+        weekEnd: end,
+        fetchedCount: summaries.length,
+        returnedCount: filteredSummaries.length,
+        previewLeadMinutes: sessionsWeekPreviewLeadMinutes
+      },
+      logFilteredSessionsWeekForPreviewWindow
+    )
+
+    return filteredSummaries
   }
 
   public async listSessions(

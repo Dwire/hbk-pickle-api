@@ -6,7 +6,7 @@
 
 ## Core API
 
-- List session occurrences for the current Eastern week via `sessionsWeek(leagueId)` with optional `leagueId`.
+- List session occurrences for the current Eastern week via `sessionsWeek(leagueId)` with optional `leagueId`, including next Monday rows starting Sunday 8:00am ET for countdown visibility.
 - Session summaries include user-specific registration/sub signup status when authenticated.
 - Session summaries expose `occurrenceStatus` (`ACTIVE`/`CANCELED`) so clients can render canceled sessions differently.
 - Admin create/update/archive session templates and create/update/delete occurrences.
@@ -31,6 +31,7 @@
 - `sessionOccurrenceDetail` capability flags (`canRegister`, `canSub`) require active league membership so UI actions match mutation enforcement.
 - Session display state (PAST/LIVE/UPCOMING) compares Eastern wall-clock projections of UTC instants so sessions only go PAST after the listed end time.
 - `sessionsWeek` resolves league scope from explicit `leagueId` or from the caller's effective active league context and enforces league access.
+- `sessionsWeek` uses Monday-Sunday as the canonical Eastern week but pre-shows next Monday sessions at 8:00am ET Sunday (2 hours before registration opens).
 - Canceled occurrences remain visible in `sessionsWeek` and include `occurrenceStatus = CANCELED`.
 - sessionsWeek sub signup status returns ACTIVE or SELECTED records for the current user (canceled/replaced are excluded).
 - Session occurrence summaries report subCount using ACTIVE + SELECTED sub signups (canceled/replaced excluded).
