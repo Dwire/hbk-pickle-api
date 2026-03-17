@@ -34,7 +34,7 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - Phone-based slot assignment that creates placeholder users (`isOnApp = false`) until first verified login and auto-activates league membership
 - League lifecycle via `LeagueStatus` (`DRAFT`, `UPCOMING`, `ACTIVE`, `ARCHIVED`) with one `ACTIVE` league enforced per organization
 - Session lifecycle via `SessionStatus` (`ACTIVE`, `ARCHIVED`)
-- Weekly (Eastern) session occurrences listing by optional `leagueId`, with automatic effective-league resolution when omitted
+- Weekly (Eastern) session occurrences listing by optional `leagueId`, with automatic effective-league resolution when omitted and Monday preview rows visible from Sunday 8am ET
 - Session occurrences have lifecycle status (`ACTIVE`/`CANCELED`, default `ACTIVE`) and `sessionsWeek` exposes `occurrenceStatus` while still returning canceled occurrences
 - Admin occurrence create/update validates that `startsAt`/`endsAt` remain within the parent league `startDate`/`endDate` bounds
 - Admin occurrence delete auto-cancels when participation history exists; otherwise hard-deletes
