@@ -3,7 +3,14 @@ WITH ranked_reminders AS (
     "id",
     ROW_NUMBER() OVER (
       PARTITION BY "userId", "occurrenceId", "kind"
-      ORDER BY "createdAt" ASC, "id" ASC
+      ORDER BY
+        CASE
+          WHEN "status" = 'SENT' THEN 0
+          WHEN "status" = 'FAILED' THEN 1
+          ELSE 2
+        END ASC,
+        "createdAt" DESC,
+        "id" DESC
     ) AS row_num
   FROM "Notification"
   WHERE "occurrenceId" IS NOT NULL
