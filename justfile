@@ -180,6 +180,36 @@ migrate-dev:
 db-push:
 	pnpm prisma db push
 
+# Execute a SQL file directly against the configured database (no shadow DB required).
+# Parameters: `file` (required path to SQL file).
+
+db-execute file:
+	pnpm prisma db execute --schema prisma/schema.prisma --file {{file}}
+
+# Apply the org/membership migration directly (no shadow DB required).
+# Parameters: none.
+
+db-apply-org-membership-migration:
+	just db-execute prisma/migrations/202603150001_org_scoped_memberships/migration.sql
+
+# Clean up partially applied org/membership migration artifacts before retrying.
+# Parameters: none.
+
+db-cleanup-org-membership-migration:
+	just db-execute prisma/migrations/202603150001_org_scoped_memberships/retry-cleanup.sql
+
+# Convert all primary/foreign key id columns from text to Postgres uuid.
+# Parameters: none.
+
+db-convert-ids-to-uuid:
+	just db-execute prisma/migrations/202603160001_convert_ids_to_uuid/migration.sql
+
+# Add once-only reminder notification index and remove duplicate reminder rows.
+# Parameters: none.
+
+db-apply-reminder-once-migration:
+	just db-execute prisma/migrations/202603160002_notification_reminder_once/migration.sql
+
 # Generate Prisma client.
 
 prisma-generate:
@@ -190,6 +220,12 @@ prisma-generate:
 
 prisma-studio:
 	pnpm prisma studio
+
+# Show Prisma migration status against the configured database.
+# Parameters: none.
+
+migrate-status:
+	pnpm prisma migrate status
 
 # Seed database with demo league, users, sessions, and assignments.
 # Parameters: none.

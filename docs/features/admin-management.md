@@ -2,44 +2,42 @@
 
 ## Purpose
 
-- Provide admin-only read/write APIs for leagues, session templates, session occurrences, slot assignments, players, rosters, and manual attendance/sub controls.
+- Provide organization-scoped admin read/write APIs for leagues, session templates, session occurrences, slot assignments, players, memberships, rosters, and manual attendance/sub controls.
 
 ## Core API
 
-- `adminLeagues` / `adminLeagueDetail` / `adminLeagueRules`
-- `adminLeagueDetail` now resolves nested `rules` and filtered `sessions(input)` in one query path.
-- `AdminSessionTemplate` detail now includes `assignmentCount`, `occurrenceCount`, `assignments`, and filtered `occurrences(input)`.
-- `adminPlayers` / `adminOccurrenceRoster`
+- `adminLeagues(organizationId, ...)`, `adminLeagueDetail(leagueId)`, `adminLeagueRules(leagueId)`
+- `adminPlayers(organizationId, ...)`, `adminOccurrenceRoster(occurrenceId)`
 - `adminCreateLeague` / `adminUpdateLeague` / `adminDeleteLeague`
 - `adminCreateSession` / `adminUpdateSession` / `adminDeleteSession`
 - `adminCreateSessionOccurrence` / `adminCreateSessionOccurrences` / `adminUpdateSessionOccurrence` / `adminDeleteSessionOccurrence`
 - `adminCreateSlotAssignment` / `adminCreateSlotAssignments` / `adminUpdateSlotAssignment` / `adminDeleteSlotAssignment`
 - `adminCreatePlayer` / `adminUpdatePlayer`
+- `adminSetLeagueMembership`
 - `adminSetRegistration` / `adminSetSubSignup`
 - `adminUpsertLeagueRule` / `adminCopyLeagueRulesFromTemplate`
-- All admin mutations require the authenticated user role to be `ADMIN`.
-- All admin read queries above require the authenticated user role to be `ADMIN`.
 
 ## Key Files
 
-- src/features/admin/adminManagementService.ts: Admin CRUD business logic and delete semantics.
-- src/app/graphql/schema.ts: Admin GraphQL input/types and mutation resolvers.
-- src/app/auth.ts: `requireAdmin` auth guard.
+- src/features/admin/adminManagementService.ts: Admin CRUD business logic, membership upserts, and delete semantics.
+- src/app/graphql/schema.ts: Admin GraphQL input/types and resolver-level org/league auth checks.
+- src/app/auth.ts: Org/league scoped auth guards.
 - src/shared/phone.ts: E.164 phone normalization used for auth and admin assignment.
-- prisma/schema.prisma: League/session lifecycle enums and admin detail query indexes.
+- prisma/schema.prisma: Organization + league membership data model.
 
 ## Data Flow
 
-- League lifecycle uses `LeagueStatus` (`DRAFT`, `UPCOMING`, `ACTIVE`, `ARCHIVED`) and enforces one `ACTIVE` league at a time.
-- Session lifecycle uses `SessionStatus` (`ACTIVE`, `ARCHIVED`).
-- Admin league and player list queries support pagination (`limit`/`offset`), with player filters for `search`, `role`, and `isOnApp`.
-- `adminLeagueDetail` keeps the root contract stable while nested resolvers lazily load rules/sessions/assignments/occurrences.
+- Admin permissions are derived from `OrganizationMembership.role` (`OWNER`/`ADMIN`), not `User.role`.
+- League lifecycle enforces one `ACTIVE` league per organization (DB partial unique index + service archive behavior).
+- Admin league and player list queries are organization-scoped and support pagination (`limit`/`offset`) with `search` and `isOnApp` filters.
 - Admin session detail applies `AdminLeagueDetailInput` filters (`includeArchivedSessions`, `includeCanceledOccurrences`, `occurrenceStart`, `occurrenceEnd`, `maxOccurrencesPerSession`).
 - Session detail occurrence rows expose `attendingCount` (`ATTENDING` registrations), `subCount` (`ACTIVE` + `SELECTED` sub signups), and `openSpots` (`max(capacity - attendingCount, 0)`).
-- Session detail uses batched league-level loading to avoid N+1 and applies a DB window-function cap for `maxOccurrencesPerSession`.
-- League delete hard-cascades dependent sessions, occurrences, assignments, registrations, sub signups, notifications, and rules.
-- Session delete archives when historical participation exists; otherwise hard-deletes related empty data.
-- Occurrence create/update validates that every occurrence stays within its parent league date bounds.
-- Occurrence delete auto-cancels when participation exists; otherwise hard-deletes.
-- Slot assignment accepts phone numbers, normalizes to E.164, and upserts placeholder users (`isOnApp = false`) when needed.
-- Admin direct registration/sub status mutations upsert rows for explicit roster control.
+- Slot assignment accepts phone numbers, normalizes to E.164, upserts users, and auto-upserts `LeagueMembership` to `ACTIVE`.
+- `adminCreatePlayer` is league-scoped (`leagueId` required), upserts/creates the user by phone, and upserts `LeagueMembership` to `ACTIVE` in the same transaction.
+- `adminUpdatePlayer` can update org-scoped role intent via `input.role`:
+  - `ADMIN`: upsert `OrganizationMembership` with role `ADMIN`
+  - `PLAYER`: remove non-owner org membership
+  - `OWNER`: rejected for assignment, and existing owners cannot be changed via this mutation
+- `adminSetLeagueMembership` toggles `LeagueMembership.status` (`ACTIVE`/`REMOVED`) for manual eligibility control.
+- `adminSetRegistration` and `adminSetSubSignup` require `LeagueMembership.status = ACTIVE` for the occurrence's league.
+- League delete hard-cascades dependent sessions, occurrences, assignments, memberships, registrations, sub signups, notifications, and rules.

@@ -17,4 +17,5 @@
 ## Data Flow
 
 - Upsert registration record per occurrence with ATTENDING or CANCELED.
+- Require `LeagueMembership.status = ACTIVE` for the occurrence league.
 - Registration attempts are rejected when the target occurrence status is `CANCELED`.

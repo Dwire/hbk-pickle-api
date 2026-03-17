@@ -1,6 +1,8 @@
 # Feature Docs
 
 - auth.md: Phone auth and JWT issuance
+- organizations-memberships.md: Organization tenancy, org admin roles, and league membership access/eligibility
+- user-organizations.md: Authenticated organization list query for org switching
 - display-name.md: Authenticated display name updates
 - sessions.md: Session listing and admin session creation
 - admin-management.md: Admin read/write APIs for leagues/sessions/occurrences/slot assignments/players/rosters including nested league detail loading

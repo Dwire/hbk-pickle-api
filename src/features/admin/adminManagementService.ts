@@ -1,12 +1,12 @@
 import { Prisma as PrismaClient } from '../../generated/prisma/client.js'
 import type {
+  LeagueMembershipStatus,
   LeagueStatus,
   RegistrationStatus,
   Prisma,
   SessionOccurrenceStatus,
   SessionStatus,
   SubSignupStatus,
-  UserRole,
   Weekday
 } from '../../generated/prisma/client.js'
 import { sessionCapacityDefault } from '../../shared/constants.js'
@@ -20,7 +20,7 @@ const leagueStatusArchived: LeagueStatus = 'ARCHIVED'
 const sessionStatusActive: SessionStatus = 'ACTIVE'
 const sessionStatusArchived: SessionStatus = 'ARCHIVED'
 const occurrenceStatusCanceled: SessionOccurrenceStatus = 'CANCELED'
-const playerRole: UserRole = 'PLAYER'
+const leagueMembershipStatusActive: LeagueMembershipStatus = 'ACTIVE'
 const registrationStatusAttending: RegistrationStatus = 'ATTENDING'
 const subSignupStatusActive: SubSignupStatus = 'ACTIVE'
 const subSignupStatusSelected: SubSignupStatus = 'SELECTED'
@@ -34,6 +34,7 @@ const paginationLimitDefault = 25
 const paginationOffsetDefault = 0
 const paginationLimitMax = 100
 const adminLeagueDetailMaxOccurrencesDefault = 250
+const errorOrganizationMissing = 'Organization missing'
 const errorLeagueMissing = 'League missing'
 const errorSessionMissing = 'Session missing'
 const errorOccurrenceMissing = 'Session occurrence missing'
@@ -61,6 +62,17 @@ const errorAdminLeagueDetailMaxOccurrencesInvalid =
   'maxOccurrencesPerSession must be an integer greater than or equal to 1'
 const errorAdminLeagueDetailOccurrenceRangeInvalid =
   'occurrenceStart must be before or equal to occurrenceEnd'
+const errorActiveLeagueMembershipRequired = 'User not active in this league'
+const errorPlayerNotInOrganization = 'Player not in organization'
+const errorOwnerRoleChangeNotAllowed =
+  'Cannot change role for an organization owner with this mutation'
+const errorOwnerRoleAssignmentNotAllowed =
+  'Cannot assign OWNER role with this mutation'
+const organizationMembershipRoleOwner = 'OWNER'
+const organizationMembershipRoleAdmin = 'ADMIN'
+const userRolePlayer = 'PLAYER'
+const userRoleAdmin = 'ADMIN'
+const userRoleOwner = 'OWNER'
 
 const subSignupSummaryStatuses: SubSignupStatus[] = [
   subSignupStatusActive,
@@ -75,6 +87,7 @@ export type AdminDeleteOutcome = {
 }
 
 export type CreateLeagueInput = {
+  organizationId: string
   name: string
   status?: LeagueStatus
   startDate?: Date | null
@@ -139,30 +152,40 @@ export type PaginationInput = {
 }
 
 export type AdminLeaguesInput = {
+  organizationId: string
   status?: LeagueStatus | null
   search?: string | null
   pagination?: PaginationInput | null
 }
 
 export type AdminPlayersInput = {
+  organizationId: string
   search?: string | null
-  role?: UserRole | null
   isOnApp?: boolean | null
   pagination?: PaginationInput | null
 }
 
 export type AdminCreatePlayerInput = {
+  leagueId: string
   phoneNumber: string
   displayName?: string | null
-  role?: UserRole | null
   isOnApp?: boolean | null
 }
 
 export type AdminUpdatePlayerInput = {
+  organizationId: string
   phoneNumber?: string | null
   displayName?: string | null
-  role?: UserRole | null
   isOnApp?: boolean | null
+  role?: AdminUserRole | null
+}
+
+export type AdminUserRole = 'PLAYER' | 'ADMIN' | 'OWNER'
+
+export type AdminSetLeagueMembershipInput = {
+  leagueId: string
+  userId: string
+  status: LeagueMembershipStatus
 }
 
 export type AdminOccurrenceRosterEntry = {
@@ -171,7 +194,7 @@ export type AdminOccurrenceRosterEntry = {
     phoneNumber: string
     displayName: string | null
     isOnApp: boolean
-    role: UserRole
+    roleContextLeagueId?: string
   }
   status: string
   selectionRank?: number | null
@@ -186,6 +209,15 @@ export type AdminOccurrenceRoster = {
   openSpots: number
   attendees: AdminOccurrenceRosterEntry[]
   subs: AdminOccurrenceRosterEntry[]
+}
+
+export type AdminLeagueMembership = {
+  id: string
+  leagueId: string
+  userId: string
+  status: LeagueMembershipStatus
+  createdAt: Date
+  updatedAt: Date
 }
 
 export type AdminLeagueDetailInput = {
@@ -215,7 +247,6 @@ type AdminSlotAssignmentWithUser = {
     phoneNumber: string
     displayName: string | null
     isOnApp: boolean
-    role: UserRole
   }
 }
 
@@ -399,7 +430,7 @@ export class AdminManagementService {
     }
 
     const sessionIdParams = sessionIds.map(
-      (sessionId) => PrismaClient.sql`${sessionId}`
+      (sessionId) => PrismaClient.sql`${sessionId}::uuid`
     )
     const canceledFilterSql = input.includeCanceledOccurrences
       ? PrismaClient.empty
@@ -487,12 +518,14 @@ export class AdminManagementService {
 
   private async archiveOtherActiveLeagues(
     tx: TransactionClient,
-    leagueId: string
+    organizationId: string,
+    leagueId?: string
   ): Promise<void> {
     await tx.league.updateMany({
       where: {
-        id: { not: leagueId },
-        status: leagueStatusActive
+        organizationId,
+        status: leagueStatusActive,
+        ...(leagueId ? { id: { not: leagueId } } : {})
       },
       data: {
         status: leagueStatusArchived
@@ -505,8 +538,22 @@ export class AdminManagementService {
     const leagueStatus = input.status ?? leagueStatusDraft
 
     return prisma.$transaction(async (tx) => {
+      const organization = await tx.organization.findUnique({
+        where: { id: input.organizationId },
+        select: { id: true }
+      })
+
+      if (!organization) {
+        throw new Error(errorOrganizationMissing)
+      }
+
+      if (leagueStatus === leagueStatusActive) {
+        await this.archiveOtherActiveLeagues(tx, input.organizationId)
+      }
+
       const createdLeague = await tx.league.create({
         data: {
+          organizationId: input.organizationId,
           name: input.name,
           status: leagueStatus,
           startDate: input.startDate,
@@ -514,10 +561,6 @@ export class AdminManagementService {
           timeZone: input.timeZone
         }
       })
-
-      if (createdLeague.status === leagueStatusActive) {
-        await this.archiveOtherActiveLeagues(tx, createdLeague.id)
-      }
 
       return createdLeague
     })
@@ -536,9 +579,22 @@ export class AdminManagementService {
       input.startDate === undefined ? existingLeague.startDate : input.startDate
     const nextEndDate =
       input.endDate === undefined ? existingLeague.endDate : input.endDate
+    const nextStatus =
+      input.status === undefined ? existingLeague.status : input.status
     this.validateDateRange(nextStartDate, nextEndDate)
 
     return prisma.$transaction(async (tx) => {
+      if (
+        nextStatus === leagueStatusActive &&
+        existingLeague.status !== leagueStatusActive
+      ) {
+        await this.archiveOtherActiveLeagues(
+          tx,
+          existingLeague.organizationId,
+          existingLeague.id
+        )
+      }
+
       const updatedLeague = await tx.league.update({
         where: { id: leagueId },
         data: {
@@ -550,10 +606,6 @@ export class AdminManagementService {
         }
       })
 
-      if (updatedLeague.status === leagueStatusActive) {
-        await this.archiveOtherActiveLeagues(tx, updatedLeague.id)
-      }
-
       return updatedLeague
     })
   }
@@ -562,6 +614,7 @@ export class AdminManagementService {
     const { limit, offset } = this.resolvePagination(input.pagination)
     const trimmedSearch = input.search?.trim()
     const whereClause: Prisma.LeagueWhereInput = {
+      organizationId: input.organizationId,
       ...(input.status ? { status: input.status } : {}),
       ...(trimmedSearch
         ? {
@@ -658,8 +711,7 @@ export class AdminManagementService {
               id: true,
               phoneNumber: true,
               displayName: true,
-              isOnApp: true,
-              role: true
+              isOnApp: true
             }
           }
         }
@@ -789,8 +841,7 @@ export class AdminManagementService {
             id: true,
             phoneNumber: true,
             displayName: true,
-            isOnApp: true,
-            role: true
+            isOnApp: true
           }
         }
       }
@@ -882,31 +933,50 @@ export class AdminManagementService {
   public async adminPlayers(input: AdminPlayersInput) {
     const { limit, offset } = this.resolvePagination(input.pagination)
     const trimmedSearch = input.search?.trim()
-    const searchClause = trimmedSearch
-      ? {
+    const whereClause: Prisma.UserWhereInput = {
+      AND: [
+        {
           OR: [
             {
-              phoneNumber: {
-                contains: trimmedSearch,
-                mode: 'insensitive' as const
+              organizationMemberships: {
+                some: {
+                  organizationId: input.organizationId
+                }
               }
             },
             {
-              displayName: {
-                contains: trimmedSearch,
-                mode: 'insensitive' as const
+              leagueMemberships: {
+                some: {
+                  league: {
+                    organizationId: input.organizationId
+                  }
+                }
               }
             }
           ]
         }
-      : {}
-
-    const whereClause: Prisma.UserWhereInput = {
-      ...(input.role ? { role: input.role } : {}),
+      ],
       ...(input.isOnApp === undefined || input.isOnApp === null
         ? {}
         : { isOnApp: input.isOnApp }),
-      ...searchClause
+      ...(trimmedSearch
+        ? {
+            OR: [
+              {
+                phoneNumber: {
+                  contains: trimmedSearch,
+                  mode: 'insensitive'
+                }
+              },
+              {
+                displayName: {
+                  contains: trimmedSearch,
+                  mode: 'insensitive'
+                }
+              }
+            ]
+          }
+        : {})
     }
 
     const [totalCount, items] = await prisma.$transaction([
@@ -955,7 +1025,7 @@ export class AdminManagementService {
         phoneNumber: registration.user.phoneNumber,
         displayName: registration.user.displayName,
         isOnApp: registration.user.isOnApp,
-        role: registration.user.role
+        roleContextLeagueId: occurrence.session.leagueId
       },
       status: registration.status
     }))
@@ -966,7 +1036,7 @@ export class AdminManagementService {
         phoneNumber: subSignup.user.phoneNumber,
         displayName: subSignup.user.displayName,
         isOnApp: subSignup.user.isOnApp,
-        role: subSignup.user.role
+        roleContextLeagueId: occurrence.session.leagueId
       },
       status: subSignup.status,
       selectionRank: subSignup.selectionRank
@@ -1043,6 +1113,9 @@ export class AdminManagementService {
       }
 
       await tx.slotAssignment.deleteMany({
+        where: { leagueId }
+      })
+      await tx.leagueMembership.deleteMany({
         where: { leagueId }
       })
       await tx.session.deleteMany({
@@ -1423,8 +1496,7 @@ export class AdminManagementService {
     const user = await tx.user.upsert({
       where: { phoneNumber: normalizedPhoneNumber },
       create: {
-        phoneNumber: normalizedPhoneNumber,
-        role: playerRole
+        phoneNumber: normalizedPhoneNumber
       },
       update: {}
     })
@@ -1467,8 +1539,7 @@ export class AdminManagementService {
             id: true,
             phoneNumber: true,
             displayName: true,
-            isOnApp: true,
-            role: true
+            isOnApp: true
           }
         }
       }
@@ -1503,6 +1574,22 @@ export class AdminManagementService {
         },
         update: {
           sessionId: input.sessionId
+        }
+      })
+      await tx.leagueMembership.upsert({
+        where: {
+          leagueId_userId: {
+            leagueId: input.leagueId,
+            userId
+          }
+        },
+        create: {
+          leagueId: input.leagueId,
+          userId,
+          status: leagueMembershipStatusActive
+        },
+        update: {
+          status: leagueMembershipStatusActive
         }
       })
 
@@ -1541,6 +1628,22 @@ export class AdminManagementService {
             },
             update: {
               sessionId: input.sessionId
+            }
+          })
+          await tx.leagueMembership.upsert({
+            where: {
+              leagueId_userId: {
+                leagueId: input.leagueId,
+                userId
+              }
+            },
+            create: {
+              leagueId: input.leagueId,
+              userId,
+              status: leagueMembershipStatusActive
+            },
+            update: {
+              status: leagueMembershipStatusActive
             }
           })
           ids.push(assignment.id)
@@ -1618,6 +1721,22 @@ export class AdminManagementService {
           userId: nextUserId
         }
       })
+      await tx.leagueMembership.upsert({
+        where: {
+          leagueId_userId: {
+            leagueId: assignment.leagueId,
+            userId: nextUserId
+          }
+        },
+        create: {
+          leagueId: assignment.leagueId,
+          userId: nextUserId,
+          status: leagueMembershipStatusActive
+        },
+        update: {
+          status: leagueMembershipStatusActive
+        }
+      })
 
       return updated.id
     })
@@ -1627,13 +1746,40 @@ export class AdminManagementService {
 
   public async adminCreatePlayer(input: AdminCreatePlayerInput) {
     const normalizedPhoneNumber = normalizePhoneNumber(input.phoneNumber)
-    return prisma.user.create({
-      data: {
-        phoneNumber: normalizedPhoneNumber,
-        displayName: input.displayName ?? null,
-        role: input.role ?? playerRole,
-        isOnApp: input.isOnApp ?? false
-      }
+    const nextDisplayName =
+      input.displayName === undefined ? undefined : input.displayName
+    return prisma.$transaction(async (tx) => {
+      const user = await tx.user.upsert({
+        where: { phoneNumber: normalizedPhoneNumber },
+        create: {
+          phoneNumber: normalizedPhoneNumber,
+          displayName: input.displayName ?? null,
+          isOnApp: input.isOnApp ?? false
+        },
+        update: {
+          displayName: nextDisplayName,
+          isOnApp: input.isOnApp ?? undefined
+        }
+      })
+
+      await tx.leagueMembership.upsert({
+        where: {
+          leagueId_userId: {
+            leagueId: input.leagueId,
+            userId: user.id
+          }
+        },
+        create: {
+          leagueId: input.leagueId,
+          userId: user.id,
+          status: leagueMembershipStatusActive
+        },
+        update: {
+          status: leagueMembershipStatusActive
+        }
+      })
+
+      return user
     })
   }
 
@@ -1650,18 +1796,143 @@ export class AdminManagementService {
       throw new Error(errorPlayerMissing)
     }
 
+    const playerInOrganization = await prisma.user.findFirst({
+      where: {
+        id: playerId,
+        OR: [
+          {
+            organizationMemberships: {
+              some: {
+                organizationId: input.organizationId
+              }
+            }
+          },
+          {
+            leagueMemberships: {
+              some: {
+                league: {
+                  organizationId: input.organizationId
+                }
+              }
+            }
+          }
+        ]
+      },
+      select: { id: true }
+    })
+
+    if (!playerInOrganization) {
+      throw new Error(errorPlayerNotInOrganization)
+    }
+
     const normalizedPhoneNumber = input.phoneNumber
       ? normalizePhoneNumber(input.phoneNumber)
       : undefined
     const nextDisplayName =
       input.displayName === undefined ? undefined : input.displayName
-    return prisma.user.update({
-      where: { id: playerId },
-      data: {
-        phoneNumber: normalizedPhoneNumber,
-        displayName: nextDisplayName,
-        role: input.role ?? undefined,
-        isOnApp: input.isOnApp ?? undefined
+
+    return prisma.$transaction(async (tx) => {
+      const updatedUser = await tx.user.update({
+        where: { id: playerId },
+        data: {
+          phoneNumber: normalizedPhoneNumber,
+          displayName: nextDisplayName,
+          isOnApp: input.isOnApp ?? undefined
+        }
+      })
+
+      if (input.role !== undefined && input.role !== null) {
+        if (input.role === userRoleOwner) {
+          throw new Error(errorOwnerRoleAssignmentNotAllowed)
+        }
+
+        const existingMembership = await tx.organizationMembership.findUnique({
+          where: {
+            organizationId_userId: {
+              organizationId: input.organizationId,
+              userId: playerId
+            }
+          },
+          select: {
+            role: true
+          }
+        })
+
+        if (existingMembership?.role === organizationMembershipRoleOwner) {
+          throw new Error(errorOwnerRoleChangeNotAllowed)
+        }
+
+        if (input.role === userRoleAdmin) {
+          await tx.organizationMembership.upsert({
+            where: {
+              organizationId_userId: {
+                organizationId: input.organizationId,
+                userId: playerId
+              }
+            },
+            create: {
+              organizationId: input.organizationId,
+              userId: playerId,
+              role: organizationMembershipRoleAdmin
+            },
+            update: {
+              role: organizationMembershipRoleAdmin
+            }
+          })
+        }
+
+        if (input.role === userRolePlayer && existingMembership) {
+          await tx.organizationMembership.delete({
+            where: {
+              organizationId_userId: {
+                organizationId: input.organizationId,
+                userId: playerId
+              }
+            }
+          })
+        }
+      }
+
+      return updatedUser
+    })
+  }
+
+  public async adminSetLeagueMembership(
+    input: AdminSetLeagueMembershipInput
+  ): Promise<AdminLeagueMembership> {
+    const [league, user] = await prisma.$transaction([
+      prisma.league.findUnique({
+        where: { id: input.leagueId },
+        select: { id: true }
+      }),
+      prisma.user.findUnique({
+        where: { id: input.userId },
+        select: { id: true }
+      })
+    ])
+
+    if (!league) {
+      throw new Error(errorLeagueMissing)
+    }
+
+    if (!user) {
+      throw new Error(errorPlayerMissing)
+    }
+
+    return prisma.leagueMembership.upsert({
+      where: {
+        leagueId_userId: {
+          leagueId: input.leagueId,
+          userId: input.userId
+        }
+      },
+      create: {
+        leagueId: input.leagueId,
+        userId: input.userId,
+        status: input.status
+      },
+      update: {
+        status: input.status
       }
     })
   }
@@ -1789,7 +2060,15 @@ export class AdminManagementService {
     const [occurrence, user] = await prisma.$transaction([
       prisma.sessionOccurrence.findUnique({
         where: { id: occurrenceId },
-        select: { id: true, status: true }
+        select: {
+          id: true,
+          status: true,
+          session: {
+            select: {
+              leagueId: true
+            }
+          }
+        }
       }),
       prisma.user.findUnique({ where: { id: userId }, select: { id: true } })
     ])
@@ -1800,6 +2079,22 @@ export class AdminManagementService {
 
     if (!user) {
       throw new Error(errorPlayerMissing)
+    }
+
+    const leagueMembership = await prisma.leagueMembership.findUnique({
+      where: {
+        leagueId_userId: {
+          leagueId: occurrence.session.leagueId,
+          userId
+        }
+      },
+      select: {
+        status: true
+      }
+    })
+
+    if (!leagueMembership || leagueMembership.status !== leagueMembershipStatusActive) {
+      throw new Error(errorActiveLeagueMembershipRequired)
     }
 
     return prisma.sessionRegistration.upsert({
@@ -1828,7 +2123,15 @@ export class AdminManagementService {
     const [occurrence, user, existingSubSignup] = await prisma.$transaction([
       prisma.sessionOccurrence.findUnique({
         where: { id: occurrenceId },
-        select: { id: true, status: true }
+        select: {
+          id: true,
+          status: true,
+          session: {
+            select: {
+              leagueId: true
+            }
+          }
+        }
       }),
       prisma.user.findUnique({ where: { id: userId }, select: { id: true } }),
       prisma.subSignup.findUnique({
@@ -1847,6 +2150,22 @@ export class AdminManagementService {
 
     if (!user) {
       throw new Error(errorPlayerMissing)
+    }
+
+    const leagueMembership = await prisma.leagueMembership.findUnique({
+      where: {
+        leagueId_userId: {
+          leagueId: occurrence.session.leagueId,
+          userId
+        }
+      },
+      select: {
+        status: true
+      }
+    })
+
+    if (!leagueMembership || leagueMembership.status !== leagueMembershipStatusActive) {
+      throw new Error(errorActiveLeagueMembershipRequired)
     }
 
     if (!existingSubSignup) {

@@ -41,12 +41,12 @@ const sessionCanceledJobName = 'session-canceled'
 const sessionCanceledJobIdPrefix = 'session-canceled'
 const sessionCanceledJobIdSeparator = '-'
 const sessionOccurrenceStatusCanceled: SessionOccurrenceStatus = 'CANCELED'
-const leagueStatusActive = 'ACTIVE'
 const registrationStatusAttending: RegistrationStatus = 'ATTENDING'
 const subSignupStatusActive: SubSignupStatus = 'ACTIVE'
 const subSignupStatusSelected: SubSignupStatus = 'SELECTED'
 const subSignupStatusReplaced: SubSignupStatus = 'REPLACED'
 const subSignupStatusCanceled: SubSignupStatus = 'CANCELED'
+const leagueMembershipStatusActive = 'ACTIVE'
 const subSignupSummaryStatuses: SubSignupStatus[] = [subSignupStatusActive, subSignupStatusSelected]
 const subSignupStatusCountsInitial: Record<SubSignupStatus, number> = {
   ACTIVE: 0,
@@ -99,7 +99,7 @@ type SessionRosterEntry = {
     phoneNumber: string
     displayName: string | null
     isOnApp: boolean
-    role: string
+    roleContextLeagueId?: string
   }
   status: string
   selectionRank?: number | null
@@ -225,8 +225,8 @@ const appendParticipantByOccurrence = (
 /**
  * SessionService
  * - Lists sessions with derived registration windows.
- * - Creates sessions tied to the default league.
- * - Used by session queries and admin mutations.
+ * - Maps occurrence-level detail and counters for member/admin queries.
+ * - Used by session queries, registration/sub eligibility checks, and admin occurrence workflows.
  */
 export class SessionService {
   public calculateRegistrationWindow(startsAt: Date): SessionWindow {
@@ -294,19 +294,28 @@ export class SessionService {
    * - Delegates to range-based listing for the resulting UTC window.
    * - Used by the sessionsWeek query.
    */
-  public async listSessionsWeek(userId?: string | null): Promise<SessionOccurrenceSummary[]> {
+  public async listSessionsWeek(
+    leagueId: string,
+    userId?: string | null
+  ): Promise<SessionOccurrenceSummary[]> {
     const { start, end } = getEasternWeekRangeUtc(new Date())
     logger.info({ start, end, timeZone: easternTimeZone }, 'Listing sessions for eastern week')
-    return this.listSessions(start, end, userId)
+    return this.listSessions(start, end, leagueId, userId)
   }
 
-  public async listSessions(start: Date, end: Date, userId?: string | null): Promise<SessionOccurrenceSummary[]> {
+  public async listSessions(
+    start: Date,
+    end: Date,
+    leagueId: string,
+    userId?: string | null
+  ): Promise<SessionOccurrenceSummary[]> {
     const includeUserStatus = typeof userId === 'string' && userId.length > 0
     const now = new Date()
     const occurrences = await prisma.sessionOccurrence.findMany({
       where: {
         startsAt: { gte: start },
-        endsAt: { lte: end }
+        endsAt: { lte: end },
+        session: { leagueId }
       },
       include: {
         session: true,
@@ -509,28 +518,6 @@ export class SessionService {
     logger.info({ displayStateCounts }, logResolvedSessionDisplayStates)
 
     return summaries
-  }
-
-  public async createSession(
-    title: string,
-    weekday: Weekday,
-    startTimeMinutes: number,
-    endTimeMinutes: number,
-    capacity?: number
-  ) {
-    const session = await prisma.session.create({
-      data: {
-        league: { connect: { id: await this.getDefaultLeagueId() } },
-        title,
-        weekday,
-        startTimeMinutes,
-        endTimeMinutes,
-        capacity: capacity ?? sessionCapacityDefault
-      }
-    })
-
-    logger.info({ sessionId: session.id, weekday }, 'Created session template')
-    return session
   }
 
   public async createSessionOccurrence(
@@ -769,7 +756,7 @@ export class SessionService {
         phoneNumber: registration.user.phoneNumber,
         displayName: registration.user.displayName,
         isOnApp: registration.user.isOnApp,
-        role: registration.user.role
+        roleContextLeagueId: occurrence.session.leagueId
       },
       status: registration.status
     }))
@@ -780,7 +767,7 @@ export class SessionService {
         phoneNumber: signup.user.phoneNumber,
         displayName: signup.user.displayName,
         isOnApp: signup.user.isOnApp,
-        role: signup.user.role
+        roleContextLeagueId: occurrence.session.leagueId
       },
       status: signup.status,
       selectionRank: signup.selectionRank
@@ -793,19 +780,40 @@ export class SessionService {
     let canSub = false
 
     if (userId) {
-      const assignment = await prisma.slotAssignment.findFirst({
-        where: { userId, sessionId: occurrence.sessionId }
-      })
-      const isUserAssignedToSession = Boolean(assignment)
-      const hasRegistration = await prisma.sessionRegistration.findFirst({
-        where: { userId, occurrenceId, status: registrationStatusAttending }
-      })
-      const hasSubSignup = await prisma.subSignup.findFirst({
-        where: { userId, occurrenceId, status: { in: [subSignupStatusActive, subSignupStatusSelected] } }
-      })
+      const [leagueMembership, assignment, hasRegistration, hasSubSignup] =
+        await prisma.$transaction([
+          prisma.leagueMembership.findUnique({
+            where: {
+              leagueId_userId: {
+                leagueId: occurrence.session.leagueId,
+                userId
+              }
+            },
+            select: {
+              status: true
+            }
+          }),
+          prisma.slotAssignment.findFirst({
+            where: { userId, sessionId: occurrence.sessionId }
+          }),
+          prisma.sessionRegistration.findFirst({
+            where: { userId, occurrenceId, status: registrationStatusAttending }
+          }),
+          prisma.subSignup.findFirst({
+            where: { userId, occurrenceId, status: { in: [subSignupStatusActive, subSignupStatusSelected] } }
+          })
+        ])
 
-      canRegister = Boolean(isUserAssignedToSession && !hasRegistration)
-      canSub = Boolean(!isUserAssignedToSession && !hasSubSignup)
+      const hasActiveLeagueMembership =
+        leagueMembership?.status === leagueMembershipStatusActive
+      const isUserAssignedToSession = Boolean(assignment)
+
+      canRegister = Boolean(
+        hasActiveLeagueMembership && isUserAssignedToSession && !hasRegistration
+      )
+      canSub = Boolean(
+        hasActiveLeagueMembership && !isUserAssignedToSession && !hasSubSignup
+      )
       logger.info({ occurrenceId, userId, isUserAssignedToSession }, logResolvedSessionAssignmentStatus)
 
       return {
@@ -834,26 +842,6 @@ export class SessionService {
       isRegistrationOpen,
       isUserAssignedToSession: false
     }
-  }
-
-  private async getDefaultLeagueId(): Promise<string> {
-    const league =
-      (await prisma.league.findFirst({
-        where: { status: leagueStatusActive },
-        orderBy: { createdAt: 'desc' }
-      })) ??
-      (await prisma.league.findFirst({
-        orderBy: { createdAt: 'asc' }
-      }))
-
-    if (!league) {
-      const created = await prisma.league.create({
-        data: { name: 'Default League' }
-      })
-      return created.id
-    }
-
-    return league.id
   }
 
   private mapOccurrenceToSummary(

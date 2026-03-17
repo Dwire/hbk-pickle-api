@@ -9,6 +9,16 @@ export type RequestContext = {
   requestId: string
   authToken: string | null
   userId: string | null
+  authzCache: {
+    hasVerifiedUser: boolean
+    orgAdminByOrgId: Map<string, boolean>
+    orgIdByLeagueId: Map<string, string>
+    leagueIdBySessionId: Map<string, string>
+    leagueIdByOccurrenceId: Map<string, string>
+    leagueIdBySlotAssignmentId: Map<string, string>
+    leagueAccessByLeagueId: Map<string, boolean>
+    userRoleByOrgAndUser: Map<string, 'PLAYER' | 'ADMIN' | 'OWNER'>
+  }
 }
 
 export type AppContext = {
@@ -60,7 +70,17 @@ export const buildContext = (request: Request): AppContext => {
     request: {
       requestId,
       authToken,
-      userId
+      userId,
+      authzCache: {
+        hasVerifiedUser: false,
+        orgAdminByOrgId: new Map<string, boolean>(),
+        orgIdByLeagueId: new Map<string, string>(),
+        leagueIdBySessionId: new Map<string, string>(),
+        leagueIdByOccurrenceId: new Map<string, string>(),
+        leagueIdBySlotAssignmentId: new Map<string, string>(),
+        leagueAccessByLeagueId: new Map<string, boolean>(),
+        userRoleByOrgAndUser: new Map<string, 'PLAYER' | 'ADMIN' | 'OWNER'>()
+      }
     }
   }
 }

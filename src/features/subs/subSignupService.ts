@@ -7,6 +7,7 @@ const subSignupStatusActive = 'ACTIVE'
 const subSignupStatusSelected = 'SELECTED'
 const subSignupStatusCanceled = 'CANCELED'
 const occurrenceStatusCanceled = 'CANCELED'
+const leagueMembershipStatusActive = 'ACTIVE'
 
 /**
  * SubSignupService
@@ -46,6 +47,23 @@ export class SubSignupService {
     if (!sessionService.isWithinSubSignupWindow(now, occurrence.endsAt)) {
       logger.warn({ occurrenceId, userId }, logSubSignupOutsideWindow)
       throw new Error(errorSubSignupWindowClosed)
+    }
+
+    const leagueMembership = await prisma.leagueMembership.findUnique({
+      where: {
+        leagueId_userId: {
+          leagueId: occurrence.session.leagueId,
+          userId
+        }
+      },
+      select: {
+        status: true
+      }
+    })
+
+    if (!leagueMembership || leagueMembership.status !== leagueMembershipStatusActive) {
+      logger.warn({ occurrenceId, userId }, 'Sub signup attempt without active league membership')
+      throw new Error('User not active in this league')
     }
 
     const assignment = await prisma.slotAssignment.findFirst({
