@@ -19,6 +19,8 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - Auth context derives user identity from bearer JWTs for resolvers
 - Authenticated users can update their display name via GraphQL
 - Authenticated users can upload/replace/delete profile photos via Cloudflare direct-upload intents and completion mutations
+- Profile photo direct-upload intents call Cloudflare with multipart form payloads (required media type for `/images/v2/direct_upload`)
+- Profile photo direct-upload intents assign Cloudflare image ids in the `hobo-player-profile-<unique>` format
 - Org admin/owner users can remove player profile photos with org-scoped authorization
 - Authenticated users can permanently delete their account with FK-safe transactional cleanup and sole org owner/admin safeguards
 - Organization tenancy with per-org league lifecycle (`League.organizationId`)

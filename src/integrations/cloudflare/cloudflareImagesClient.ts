@@ -23,6 +23,11 @@ type CloudflareImageResult = {
 }
 
 const cloudflareApiBaseUrl = `https://api.cloudflare.com/client/v4/accounts/${config.cloudflare.accountId}`
+const profileImageCustomIdPrefix = 'hobo-player-profile'
+const profileImageCustomIdSeparator = '-'
+
+const createProfileImageCustomId = (): string =>
+  `${profileImageCustomIdPrefix}${profileImageCustomIdSeparator}${globalThis.crypto.randomUUID()}`
 
 const toCloudflareErrorMessage = (errors: CloudflareError[]): string => {
   if (errors.length === 0) {
@@ -48,11 +53,16 @@ export class CloudflareImagesClient {
     path: string,
     init: NonNullable<Parameters<typeof globalThis.fetch>[1]>
   ): Promise<T> {
+    const shouldSetJsonContentType =
+      init.body !== undefined &&
+      init.body !== null &&
+      !(init.body instanceof globalThis.FormData)
+
     const response = await globalThis.fetch(`${cloudflareApiBaseUrl}${path}`, {
       ...init,
       headers: {
         Authorization: `Bearer ${config.cloudflare.imagesApiToken}`,
-        ...(init.body ? { 'Content-Type': 'application/json' } : {}),
+        ...(shouldSetJsonContentType ? { 'Content-Type': 'application/json' } : {}),
         ...(init.headers ?? {})
       }
     })
@@ -75,14 +85,15 @@ export class CloudflareImagesClient {
     const expiresAt = new Date(
       Date.now() + config.cloudflare.uploadExpirySeconds * 1000
     )
+    const profileImageCustomId = createProfileImageCustomId()
+    const formData = new globalThis.FormData()
+    formData.append('id', profileImageCustomId)
+    formData.append('expiry', expiresAt.toISOString())
+    formData.append('metadata', JSON.stringify({ ownerUserId }))
+
     const result = await this.request<DirectUploadResult>('/images/v2/direct_upload', {
       method: 'POST',
-      body: JSON.stringify({
-        expiry: expiresAt.toISOString(),
-        metadata: {
-          ownerUserId
-        }
-      })
+      body: formData
     })
 
     return {

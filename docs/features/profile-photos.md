@@ -4,6 +4,8 @@
 
 - Supports authenticated profile photo upload/replace/delete flows via Cloudflare Images direct uploads.
 - Keeps binary upload traffic off the API by issuing short-lived upload intents and finalizing ownership in GraphQL.
+- Creates direct-upload intents with multipart form payloads (Cloudflare `/images/v2/direct_upload` media type requirement).
+- Sets Cloudflare direct-upload `id` values to the `hobo-player-profile-<unique>` pattern so stored provider image ids stay app-scoped.
 - Resolves `User.profileImageUrl` from provider image id + configured avatar delivery variant.
 - Performs stale upload-intent cleanup in scheduler ticks and attempts orphan image deletion at the provider.
 
