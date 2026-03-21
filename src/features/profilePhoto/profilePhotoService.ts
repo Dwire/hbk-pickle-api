@@ -132,14 +132,40 @@ export class ProfilePhotoService {
 
     const previousImageId = existingUser.profileImageId
     const updatedUser = await prisma.$transaction(async (tx) => {
-      await tx.profilePhotoUploadIntent.update({
+      const claimedIntent = await tx.profilePhotoUploadIntent.updateMany({
         where: {
-          providerImageId: normalizedImageId
+          providerImageId: normalizedImageId,
+          userId,
+          usedAt: null,
+          expiresAt: {
+            gt: now
+          }
         },
         data: {
           usedAt: now
         }
       })
+
+      if (claimedIntent.count !== 1) {
+        const currentIntent = await tx.profilePhotoUploadIntent.findUnique({
+          where: {
+            providerImageId: normalizedImageId
+          }
+        })
+        if (!currentIntent) {
+          throw new Error(errorUploadIntentMissing)
+        }
+        if (currentIntent.userId !== userId) {
+          throw new Error(errorUploadIntentForbidden)
+        }
+        if (currentIntent.usedAt) {
+          throw new Error(errorUploadIntentAlreadyUsed)
+        }
+        if (currentIntent.expiresAt <= now) {
+          throw new Error(errorUploadIntentExpired)
+        }
+        throw new Error(errorUploadIntentAlreadyUsed)
+      }
 
       return tx.user.update({
         where: {
@@ -228,13 +254,39 @@ export class ProfilePhotoService {
       }
     }
 
+    let deletedIntentCount = 0
     let attemptedCloudflareDeleteCount = 0
     let cloudflareDeleteFailureCount = 0
 
     for (const intent of staleIntents) {
+      const cleanupClaimedAt = new Date()
+      const claimResult = await prisma.profilePhotoUploadIntent.updateMany({
+        where: {
+          id: intent.id,
+          usedAt: null,
+          expiresAt: {
+            lte: now
+          }
+        },
+        data: {
+          usedAt: cleanupClaimedAt
+        }
+      })
+
+      if (claimResult.count !== 1) {
+        continue
+      }
+
       attemptedCloudflareDeleteCount += 1
       try {
         await this.cloudflareImagesClient.deleteImage(intent.providerImageId)
+        const deletedIntent = await prisma.profilePhotoUploadIntent.deleteMany({
+          where: {
+            id: intent.id,
+            usedAt: cleanupClaimedAt
+          }
+        })
+        deletedIntentCount += deletedIntent.count
       } catch (error) {
         cloudflareDeleteFailureCount += 1
         logger.warn(
@@ -245,21 +297,22 @@ export class ProfilePhotoService {
           },
           'Failed to delete stale Cloudflare image'
         )
+
+        await prisma.profilePhotoUploadIntent.updateMany({
+          where: {
+            id: intent.id,
+            usedAt: cleanupClaimedAt
+          },
+          data: {
+            usedAt: null
+          }
+        })
       }
     }
 
-    const staleIntentIds = staleIntents.map((intent) => intent.id)
-    const deletedIntents = await prisma.profilePhotoUploadIntent.deleteMany({
-      where: {
-        id: {
-          in: staleIntentIds
-        }
-      }
-    })
-
     return {
       staleIntentCount: staleIntents.length,
-      deletedIntentCount: deletedIntents.count,
+      deletedIntentCount,
       attemptedCloudflareDeleteCount,
       cloudflareDeleteFailureCount
     }
