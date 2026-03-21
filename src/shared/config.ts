@@ -3,6 +3,19 @@ import { z } from 'zod'
 
 dotenv.config()
 
+const optionalTrimmedString = z.preprocess((value) => {
+  if (typeof value !== 'string') {
+    return value
+  }
+
+  const trimmedValue = value.trim()
+  if (trimmedValue.length === 0) {
+    return undefined
+  }
+
+  return trimmedValue
+}, z.string().min(1).optional())
+
 const envSchema = z.object({
   NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
   PORT: z.coerce.number().int().positive().default(4000),
@@ -14,7 +27,17 @@ const envSchema = z.object({
   FIREBASE_PROJECT_ID: z.string().min(1),
   FIREBASE_CLIENT_EMAIL: z.string().min(1),
   FIREBASE_PRIVATE_KEY: z.string().min(1),
-  AUTH_JWT_SECRET: z.string().min(1)
+  AUTH_JWT_SECRET: z.string().min(1),
+  CLOUDFLARE_ACCOUNT_ID: z.string().min(1),
+  CLOUDFLARE_IMAGES_API_TOKEN: z.string().min(1),
+  CLOUDFLARE_IMAGES_DELIVERY_HASH: optionalTrimmedString,
+  CLOUDFLARE_IMAGES_AVATAR_VARIANT: z.string().min(1).default('avatar'),
+  CLOUDFLARE_IMAGES_UPLOAD_EXPIRY_SECONDS: z.coerce
+    .number()
+    .int()
+    .positive()
+    .max(86_400)
+    .default(900)
 })
 
 const envResult = envSchema.safeParse(process.env)
@@ -44,5 +67,12 @@ export const config = {
   },
   auth: {
     jwtSecret: envResult.data.AUTH_JWT_SECRET
+  },
+  cloudflare: {
+    accountId: envResult.data.CLOUDFLARE_ACCOUNT_ID,
+    imagesApiToken: envResult.data.CLOUDFLARE_IMAGES_API_TOKEN,
+    imagesDeliveryHash: envResult.data.CLOUDFLARE_IMAGES_DELIVERY_HASH ?? null,
+    avatarVariant: envResult.data.CLOUDFLARE_IMAGES_AVATAR_VARIANT,
+    uploadExpirySeconds: envResult.data.CLOUDFLARE_IMAGES_UPLOAD_EXPIRY_SECONDS
   }
 }

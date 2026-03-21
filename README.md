@@ -7,6 +7,7 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - Node.js + TypeScript, GraphQL-first API
 - PostgreSQL via Prisma for core data
 - Redis for caching and BullMQ for background jobs
+- Cloudflare Images for profile photo uploads and CDN delivery
 - Twilio Verify for phone-based authentication
 - Firebase Cloud Messaging for push notifications
 - Frontend polling (no websockets initially)
@@ -17,6 +18,10 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - Auth requests log Twilio Verify send/check outcomes for debugging
 - Auth context derives user identity from bearer JWTs for resolvers
 - Authenticated users can update their display name via GraphQL
+- Authenticated users can upload/replace/delete profile photos via Cloudflare direct-upload intents and completion mutations
+- Profile photo direct-upload intents call Cloudflare with multipart form payloads (required media type for `/images/v2/direct_upload`)
+- Profile photo direct-upload intents assign Cloudflare image ids in the `hobo-player-profile-<unique>` format
+- Org admin/owner users can remove player profile photos with org-scoped authorization
 - Authenticated users can permanently delete their account with FK-safe transactional cleanup and sole org owner/admin safeguards
 - Organization tenancy with per-org league lifecycle (`League.organizationId`)
 - Organization-scoped admin roles via `OrganizationMembership.role` (`OWNER`, `ADMIN`)
@@ -48,6 +53,7 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - Register/sub mutations require `LeagueMembership.ACTIVE` and reject attempts for canceled occurrences
 - `sessionOccurrenceDetail` capability flags (`canRegister`, `canSub`) require `LeagueMembership.ACTIVE` to match mutation enforcement
 - Scheduler ticks enqueue Bull sub-selection jobs from registration close through occurrence end; sub-selection worker recomputes selection and sends push notifications only for selection state changes
+- Scheduler tick also cleans up expired, unused profile-photo upload intents and attempts provider-side orphan deletion
 - Reminder scheduler queues registration-close/session-start notifications only at or after warning time, batches attendee/device lookups, dedupes once per `(userId, occurrenceId, kind)`, and retries enqueueing existing `PENDING` reminders that were never dispatched
 - Scheduler tick and sub-selection worker process `ACTIVE` occurrences only
 - Scheduler ticks skip enqueueing duplicate in-flight sub-selection job ids so repeated ticks remain stable
@@ -67,6 +73,7 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - src/app: HTTP server bootstrap and middleware
 - src/features: Feature modules (admin, auth, users, sessions, registrations, subs, rules, notifications)
 - src/integrations: Twilio, Firebase, Redis, BullMQ clients
+- src/integrations/cloudflare: Cloudflare Images client + delivery URL helpers
 - src/jobs: Schedulers and workers
 - src/shared: Logger, config, phone normalization, time helpers, constants
 - prisma: Schema and migrations
@@ -81,15 +88,18 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - src/app/graphql/schema.ts: GraphQL schema
 - src/app/auth.ts: Auth + org/league access guards
 - src/features/admin/adminManagementService.ts: Admin CRUD orchestration and delete semantics
+- src/features/profilePhoto/profilePhotoService.ts: Profile photo upload intent, completion, replacement/delete, and stale-intent cleanup orchestration
 - src/shared/config.ts: Typed environment config
 - src/shared/phone.ts: E.164 phone normalization utility
 - src/shared/logger.ts: Pino logger wrapper
 - src/scripts/seed.ts: Seed script for local demo data
 - src/jobs/subSelectionWorker.ts: Bull worker for selection recalculation and sub selection notifications
+- src/integrations/cloudflare/cloudflareImagesClient.ts: Cloudflare direct-upload/create/details/delete API wrapper
+- src/integrations/cloudflare/profileImageUrl.ts: Delivery URL builder for configured avatar variant
 
 ## Documentation
 
-- docs/features: One doc per feature module with responsibilities and data flow (see organizations-memberships.md for tenancy/auth model, account-deletion.md for self-serve hard delete semantics, utc-time.md for UTC contract, dev-debugging.md for local debugger workflow, and jobs-watch.md for local worker+ticker orchestration)
+- docs/features: One doc per feature module with responsibilities and data flow (see organizations-memberships.md for tenancy/auth model, profile-photos.md for Cloudflare upload flows, account-deletion.md for self-serve hard delete semantics, utc-time.md for UTC contract, dev-debugging.md for local debugger workflow, and jobs-watch.md for local worker+ticker orchestration)
 
 ## Local Development (Postman)
 
@@ -115,6 +125,14 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - Body: GraphQL
 
 Mutations (auth requires Twilio in production; stubbed locally).
+
+### Profile Photo Environment
+
+- `CLOUDFLARE_ACCOUNT_ID`: Cloudflare account id used for Images API calls.
+- `CLOUDFLARE_IMAGES_API_TOKEN`: Token with Cloudflare Images write/delete permissions.
+- `CLOUDFLARE_IMAGES_DELIVERY_HASH`: Optional until first image upload; when unset, `profileImageUrl` resolves to `null` and delivery URLs are not built.
+- `CLOUDFLARE_IMAGES_AVATAR_VARIANT`: Named variant for avatar rendering (default: `avatar`).
+- `CLOUDFLARE_IMAGES_UPLOAD_EXPIRY_SECONDS`: Direct-upload intent expiry in seconds (default: `900`, max `86400`).
 
 ### Local Jobs Monitoring
 
