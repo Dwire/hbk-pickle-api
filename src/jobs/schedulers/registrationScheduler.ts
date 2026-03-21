@@ -3,6 +3,7 @@ import { prisma } from '../../shared/prisma.js'
 import { logger } from '../../shared/logger.js'
 import { registrationCloseWarningMinutes, sessionStartWarningMinutes } from '../../shared/constants.js'
 import { SessionService } from '../../features/sessions/sessionService.js'
+import { ProfilePhotoService } from '../../features/profilePhoto/profilePhotoService.js'
 import { getEasternRegistrationCloseWarningAt } from '../../shared/time.js'
 import { Prisma } from '../../generated/prisma/client.js'
 import type { NotificationKind } from '../../generated/prisma/client.js'
@@ -85,6 +86,7 @@ const sessionStartReminder: ReminderDefinition = {
 
 export class RegistrationScheduler {
   private sessionService = new SessionService()
+  private profilePhotoService = new ProfilePhotoService()
 
   public async queueRegistrationCloseWarnings(now: Date): Promise<void> {
     await this.queueWarnings(now, registrationCloseReminder)
@@ -348,5 +350,23 @@ export class RegistrationScheduler {
     }
 
     logger.info({ queuedCount, skippedExistingCount }, 'Queued sub selection jobs')
+  }
+
+  public async cleanupStaleProfilePhotoUploadIntents(now: Date): Promise<void> {
+    const cleanupSummary = await this.profilePhotoService.cleanupStaleUploadIntents(
+      now
+    )
+
+    logger.info(
+      {
+        staleIntentCount: cleanupSummary.staleIntentCount,
+        deletedIntentCount: cleanupSummary.deletedIntentCount,
+        attemptedCloudflareDeleteCount:
+          cleanupSummary.attemptedCloudflareDeleteCount,
+        cloudflareDeleteFailureCount:
+          cleanupSummary.cloudflareDeleteFailureCount
+      },
+      'Cleaned stale profile photo upload intents'
+    )
   }
 }

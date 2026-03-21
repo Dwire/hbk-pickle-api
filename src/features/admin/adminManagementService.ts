@@ -193,6 +193,7 @@ export type AdminOccurrenceRosterEntry = {
     id: string
     phoneNumber: string
     displayName: string | null
+    profileImageId?: string | null
     isOnApp: boolean
     roleContextLeagueId?: string
   }
@@ -1024,6 +1025,7 @@ export class AdminManagementService {
         id: registration.user.id,
         phoneNumber: registration.user.phoneNumber,
         displayName: registration.user.displayName,
+        profileImageId: registration.user.profileImageId,
         isOnApp: registration.user.isOnApp,
         roleContextLeagueId: occurrence.session.leagueId
       },
@@ -1035,6 +1037,7 @@ export class AdminManagementService {
         id: subSignup.user.id,
         phoneNumber: subSignup.user.phoneNumber,
         displayName: subSignup.user.displayName,
+        profileImageId: subSignup.user.profileImageId,
         isOnApp: subSignup.user.isOnApp,
         roleContextLeagueId: occurrence.session.leagueId
       },

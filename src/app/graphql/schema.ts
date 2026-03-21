@@ -10,6 +10,7 @@ import type {
   AdminUserRole
 } from '../../features/admin/adminManagementService.js'
 import { AuthService } from '../../features/auth/authService.js'
+import { ProfilePhotoService } from '../../features/profilePhoto/profilePhotoService.js'
 import { RegistrationService } from '../../features/registrations/registrationService.js'
 import { RuleService } from '../../features/rules/ruleService.js'
 import { SessionService } from '../../features/sessions/sessionService.js'
@@ -24,6 +25,7 @@ import type {
   SubSignupStatus,
   Weekday
 } from '../../generated/prisma/client.js'
+import { resolveProfileImageUrl } from '../../integrations/cloudflare/profileImageUrl.js'
 import type { AppContext } from '../context.js'
 import {
   requireAuth,
@@ -106,6 +108,7 @@ type UserRoleContext = {
 type UserResolverParent = {
   id: string
   role?: string | null
+  profileImageId?: string | null
   roleContextOrganizationId?: string | null
   roleContextLeagueId?: string | null
 }
@@ -249,6 +252,7 @@ const typeDefs = `#graphql
     id: ID!
     phoneNumber: String!
     displayName: String
+    profileImageUrl: String
     isOnApp: Boolean!
     role: UserRole!
   }
@@ -356,6 +360,12 @@ const typeDefs = `#graphql
   type AuthPayload {
     token: String!
     user: User!
+  }
+
+  type ProfilePhotoUploadIntent {
+    imageId: ID!
+    uploadUrl: String!
+    expiresAt: DateTime!
   }
 
   type AdminLeague {
@@ -571,6 +581,9 @@ const typeDefs = `#graphql
     verifyPhoneCode(phoneNumber: String!, code: String!): AuthPayload!
     registerDevice(token: String!, platform: String!): Boolean!
     updateDisplayName(displayName: String!): User!
+    createMyProfilePhotoUploadIntent: ProfilePhotoUploadIntent!
+    completeMyProfilePhotoUpload(imageId: ID!): User!
+    deleteMyProfilePhoto: User!
     deleteMyAccount: Boolean!
 
     registerForSession(occurrenceId: ID!): SessionRegistration!
@@ -598,6 +611,7 @@ const typeDefs = `#graphql
 
     adminCreatePlayer(input: AdminCreatePlayerInput!): User!
     adminUpdatePlayer(playerId: ID!, input: AdminUpdatePlayerInput!): User!
+    adminDeletePlayerProfilePhoto(organizationId: ID!, playerId: ID!): User!
     adminSetLeagueMembership(input: AdminSetLeagueMembershipInput!): AdminLeagueMembership!
     adminUpsertLeagueRule(leagueId: ID!, ruleId: ID, title: String!, body: String!, order: Int!): LeagueRule!
     adminCopyLeagueRulesFromTemplate(sourceLeagueId: ID!, targetLeagueId: ID!, replaceExisting: Boolean!): [LeagueRule!]!
@@ -611,7 +625,9 @@ const resolvers = {
   User: {
     role: async (user: UserResolverParent, _: unknown, context: AppContext) => {
       return resolveUserRole(user, context)
-    }
+    },
+    profileImageUrl: (user: UserResolverParent) =>
+      resolveProfileImageUrl(user.profileImageId)
   },
   Session: {
     registeredUsers: (session: { registeredUsers?: unknown[] | null }) =>
@@ -930,6 +946,38 @@ const resolvers = {
       const service = new UserService()
       return service.upsertDisplayName(userId, args.displayName)
     },
+    createMyProfilePhotoUploadIntent: async (
+      _: unknown,
+      __: unknown,
+      context: AppContext
+    ) => {
+      const userId = requireAuth(context)
+      const profilePhotoService = new ProfilePhotoService()
+      const uploadIntent = await profilePhotoService.createUploadIntent(userId)
+      return {
+        imageId: uploadIntent.imageId,
+        uploadUrl: uploadIntent.uploadUrl,
+        expiresAt: uploadIntent.expiresAt
+      }
+    },
+    completeMyProfilePhotoUpload: async (
+      _: unknown,
+      args: { imageId: string },
+      context: AppContext
+    ) => {
+      const userId = requireAuth(context)
+      const profilePhotoService = new ProfilePhotoService()
+      return profilePhotoService.completeUpload(userId, args.imageId)
+    },
+    deleteMyProfilePhoto: async (
+      _: unknown,
+      __: unknown,
+      context: AppContext
+    ) => {
+      const userId = requireAuth(context)
+      const profilePhotoService = new ProfilePhotoService()
+      return profilePhotoService.deleteMyProfilePhoto(userId)
+    },
     deleteMyAccount: async (
       _: unknown,
       __: unknown,
@@ -1233,6 +1281,21 @@ const resolvers = {
       })
       return attachUserRoleContext(user, {
         [roleContextOrganizationIdField]: args.input.organizationId
+      })
+    },
+    adminDeletePlayerProfilePhoto: async (
+      _: unknown,
+      args: { organizationId: string; playerId: string },
+      context: AppContext
+    ) => {
+      await requireOrgAdminOrOwner(context, args.organizationId)
+      const profilePhotoService = new ProfilePhotoService()
+      const user = await profilePhotoService.adminDeletePlayerProfilePhoto(
+        args.organizationId,
+        args.playerId
+      )
+      return attachUserRoleContext(user, {
+        [roleContextOrganizationIdField]: args.organizationId
       })
     },
     adminSetLeagueMembership: async (

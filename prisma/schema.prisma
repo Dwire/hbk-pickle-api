@@ -81,6 +81,7 @@ model User {
   id                      String                   @id @default(uuid()) @db.Uuid
   phoneNumber             String                   @unique
   displayName             String?
+  profileImageId          String?                  @unique
   isOnApp                 Boolean                  @default(false)
   createdAt               DateTime                 @default(now())
   updatedAt               DateTime                 @updatedAt
@@ -91,6 +92,20 @@ model User {
   notifications           Notification[]
   organizationMemberships OrganizationMembership[]
   leagueMemberships       LeagueMembership[]
+  profilePhotoUploadIntents ProfilePhotoUploadIntent[]
+}
+
+model ProfilePhotoUploadIntent {
+  id              String   @id @default(uuid()) @db.Uuid
+  userId          String   @db.Uuid
+  providerImageId String   @unique
+  expiresAt       DateTime
+  usedAt          DateTime?
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, usedAt, expiresAt])
 }
 
 model UserDevice {

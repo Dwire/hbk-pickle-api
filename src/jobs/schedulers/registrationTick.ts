@@ -9,6 +9,7 @@ const tick = async (): Promise<void> => {
   await scheduler.queueRegistrationCloseWarnings(now)
   await scheduler.queueSessionStartWarnings(now)
   await scheduler.queueSubSelection(now)
+  await scheduler.cleanupStaleProfilePhotoUploadIntents(now)
 }
 
 tick()

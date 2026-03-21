@@ -4,6 +4,7 @@
 - organizations-memberships.md: Organization tenancy, org admin roles, and league membership access/eligibility
 - user-organizations.md: Authenticated organization list query for org switching
 - display-name.md: Authenticated display name updates
+- profile-photos.md: Cloudflare-backed profile photo upload intents, completion, deletion, and stale intent cleanup
 - account-deletion.md: Authenticated hard account deletion with owner/admin safeguards
 - sessions.md: Session listing and admin session creation
 - admin-management.md: Admin read/write APIs for leagues/sessions/occurrences/slot assignments/players/rosters including nested league detail loading

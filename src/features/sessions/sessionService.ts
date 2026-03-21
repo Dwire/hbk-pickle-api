@@ -17,6 +17,7 @@ import {
   getEasternWeekRangeUtc,
   shiftDateByDays
 } from '../../shared/time.js'
+import { resolveProfileImageUrl } from '../../integrations/cloudflare/profileImageUrl.js'
 
 const liveOpenHour = 10
 const liveOpenMinute = 0
@@ -110,6 +111,7 @@ type SessionRosterEntry = {
     id: string
     phoneNumber: string
     displayName: string | null
+    profileImageId?: string | null
     isOnApp: boolean
     roleContextLeagueId?: string
   }
@@ -216,13 +218,14 @@ const appendParticipantByOccurrence = (
   participantsByOccurrenceId: Map<string, SessionParticipantSummary[]>,
   occurrenceId: string,
   userId: string,
-  displayName: string | null
+  displayName: string | null,
+  profileImageId: string | null
 ): void => {
   const normalizedDisplayName = displayName?.trim() || null
   const participant: SessionParticipantSummary = {
     id: userId,
     displayName: normalizedDisplayName,
-    profileImageUrl: null
+    profileImageUrl: resolveProfileImageUrl(profileImageId)
   }
   const existingParticipants = participantsByOccurrenceId.get(occurrenceId)
   if (existingParticipants) {
@@ -406,7 +409,7 @@ export class SessionService {
           },
           select: {
             occurrenceId: true,
-            user: { select: { id: true, displayName: true } }
+            user: { select: { id: true, displayName: true, profileImageId: true } }
           },
           orderBy: { createdAt: 'asc' }
         }),
@@ -417,7 +420,7 @@ export class SessionService {
           },
           select: {
             occurrenceId: true,
-            user: { select: { id: true, displayName: true } }
+            user: { select: { id: true, displayName: true, profileImageId: true } }
           },
           orderBy: { signedUpAt: 'asc' }
         })
@@ -444,7 +447,8 @@ export class SessionService {
           registeredUsersByOccurrenceId,
           registration.occurrenceId,
           registration.user.id,
-          registration.user.displayName
+          registration.user.displayName,
+          registration.user.profileImageId
         )
       })
       summarySubSignups.forEach((subSignup) => {
@@ -452,7 +456,8 @@ export class SessionService {
           subUsersByOccurrenceId,
           subSignup.occurrenceId,
           subSignup.user.id,
-          subSignup.user.displayName
+          subSignup.user.displayName,
+          subSignup.user.profileImageId
         )
       })
     }
@@ -739,24 +744,24 @@ export class SessionService {
       }),
       prisma.sessionRegistration.findMany({
         where: { occurrenceId, status: registrationStatusAttending },
-        select: { user: { select: { id: true, displayName: true } } },
+        select: { user: { select: { id: true, displayName: true, profileImageId: true } } },
         orderBy: { createdAt: 'asc' }
       }),
       prisma.subSignup.findMany({
         where: { occurrenceId, status: { in: subSignupSummaryStatuses } },
-        select: { user: { select: { id: true, displayName: true } } },
+        select: { user: { select: { id: true, displayName: true, profileImageId: true } } },
         orderBy: { signedUpAt: 'asc' }
       })
     ])
     const registeredUsers = attendingRegistrations.map((registration) => ({
       id: registration.user.id,
       displayName: registration.user.displayName?.trim() || null,
-      profileImageUrl: null
+      profileImageUrl: resolveProfileImageUrl(registration.user.profileImageId)
     }))
     const subUsers = summarySubSignups.map((subSignup) => ({
       id: subSignup.user.id,
       displayName: subSignup.user.displayName?.trim() || null,
-      profileImageUrl: null
+      profileImageUrl: resolveProfileImageUrl(subSignup.user.profileImageId)
     }))
     const isUserAssignedToSession = false
     logger.info({ occurrenceId, isUserAssignedToSession }, logSessionSummaryWithoutAssignment)
@@ -807,6 +812,7 @@ export class SessionService {
         id: registration.user.id,
         phoneNumber: registration.user.phoneNumber,
         displayName: registration.user.displayName,
+        profileImageId: registration.user.profileImageId,
         isOnApp: registration.user.isOnApp,
         roleContextLeagueId: occurrence.session.leagueId
       },
@@ -818,6 +824,7 @@ export class SessionService {
         id: signup.user.id,
         phoneNumber: signup.user.phoneNumber,
         displayName: signup.user.displayName,
+        profileImageId: signup.user.profileImageId,
         isOnApp: signup.user.isOnApp,
         roleContextLeagueId: occurrence.session.leagueId
       },
