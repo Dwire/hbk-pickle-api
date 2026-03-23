@@ -17,4 +17,6 @@
 - utc-time.md: UTC-only API contract and Eastern business-rule conversions
 - dev-debugging.md: Local backend debugging workflow with Node inspector
 - jobs-watch.md: Local single-terminal orchestration for workers + scheduler ticker
-- scheduler: registrationScheduler.ts and registrationTick.ts handle queued reminders
+- fly-deployment.md: Production deployment architecture and workflows on Fly.io
+- jwt-secret-hardening.md: Production JWT secret strength guardrails and generation workflow
+- scheduler: registrationScheduler.ts, runRegistrationTick.ts, registrationTick.ts, and registrationTicker.ts handle queued reminders

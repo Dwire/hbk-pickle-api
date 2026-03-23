@@ -26,6 +26,12 @@ check: typecheck lint
 format:
 	pnpm format
 
+# Generate a cryptographically strong JWT secret for production.
+# Parameters: `bytes` (default: 48, minimum: 32).
+
+auth-generate-jwt-secret bytes="48":
+	node -e 'const crypto = require("node:crypto"); const minimumBytes = 32; const rawBytes = Number(process.argv[1]); if (!Number.isInteger(rawBytes) || rawBytes < minimumBytes) { process.stderr.write(`bytes must be an integer >= ${minimumBytes}\n`); process.exit(1); } process.stdout.write(`${crypto.randomBytes(rawBytes).toString("base64url")}\n`);' {{bytes}}
+
 # Start the dev server (ts-node/tsx) with auto-reload.
 
 dev:
@@ -57,6 +63,12 @@ build:
 
 scheduler-tick:
 	pnpm scheduler:tick
+
+# Run scheduler ticks continuously with configurable interval.
+# Parameters: none (uses `SCHEDULER_TICK_SECONDS`, default 60).
+
+scheduler-loop:
+	pnpm scheduler:loop
 
 # Run BullMQ notifications worker process.
 
@@ -237,3 +249,107 @@ seed: typecheck
 # Parameters: none.
 
 reset-seed: db-push seed
+
+# Initialize Fly app config and app resource metadata without deploying.
+# Parameters: `app` (required Fly app name), `org` (required Fly org slug), `region` (default: iad).
+
+fly-launch app org region="iad":
+	fly launch --name {{app}} --org {{org}} --region {{region}} --no-deploy --copy-config
+
+# Replace the placeholder Fly app name in `fly.toml`.
+# Parameters: `app` (required Fly app name).
+
+fly-set-app-name app:
+	#!/usr/bin/env bash
+	set -euo pipefail
+
+	placeholder_app_name="replace-with-your-fly-app-name"
+	if [[ ! -f fly.toml ]]; then
+		printf 'fly.toml not found in project root.\n' >&2
+		exit 1
+	fi
+	if ! grep -q "^app = \"${placeholder_app_name}\"$" fly.toml; then
+		printf 'Refusing to replace app name because fly.toml no longer has the placeholder value.\n' >&2
+		exit 1
+	fi
+
+	sed -E -i.bak "s/^app = \"${placeholder_app_name}\"$/app = \"{{app}}\"/" fly.toml
+	rm -f fly.toml.bak
+	printf 'Updated fly.toml app name to %s\n' "{{app}}"
+
+# Create Fly managed Postgres cluster.
+# Parameters: `name` (required cluster app name), `org` (required Fly org slug), `region` (default: iad), `plan` (default: development).
+
+fly-create-postgres name org region="iad" plan="development":
+	#!/usr/bin/env bash
+	set -euo pipefail
+
+	if fly mpg create --name {{name}} --org {{org}} --region {{region}} --plan {{plan}}; then
+		exit 0
+	fi
+
+	if fly postgres create --name {{name}} --org {{org}} --region {{region}} --plan {{plan}}; then
+		exit 0
+	fi
+
+	fly managed-postgres create --name {{name}} --org {{org}} --region {{region}} --plan {{plan}}
+
+# Attach Postgres cluster to app and inject `DATABASE_URL` secret.
+# Parameters: `pg_app` (required Postgres app name), `app` (required consumer app name).
+
+fly-attach-postgres pg_app app:
+	#!/usr/bin/env bash
+	set -euo pipefail
+
+	if fly mpg attach {{pg_app}} --app {{app}}; then
+		exit 0
+	fi
+
+	if fly postgres attach {{pg_app}} --app {{app}}; then
+		exit 0
+	fi
+
+	fly managed-postgres attach --postgres-app {{pg_app}} --app {{app}}
+
+# Create Upstash Redis on Fly and print the private URL to set as `REDIS_URL`.
+# Parameters: none.
+
+fly-create-redis:
+	#!/usr/bin/env bash
+	set -euo pipefail
+
+	fly redis create
+	printf '\nCopy the private redis:// URL above into your .env.fly as REDIS_URL, then run just fly-secrets-import.\n'
+
+# Stage secrets from dotenv-style env file for next deploy.
+# Parameters: `env_file` (default: .env.fly).
+
+fly-secrets-import env_file=".env.fly":
+	fly secrets import --stage < {{env_file}}
+
+# Deploy current revision to Fly.
+# Parameters: none.
+
+fly-deploy:
+	fly deploy
+
+# Scale process groups for production baseline (1 machine each).
+# Parameters: `app` (required app name), `region` (default: iad).
+
+fly-scale-prod app region="iad":
+	fly scale count 1 --app {{app}} --region {{region}} --process-group api
+	fly scale count 1 --app {{app}} --region {{region}} --process-group notifications
+	fly scale count 1 --app {{app}} --region {{region}} --process-group sub_selection
+	fly scale count 1 --app {{app}} --region {{region}} --process-group scheduler
+
+# Show app status and current machine/process health.
+# Parameters: `app` (required app name).
+
+fly-status app:
+	fly status --app {{app}}
+
+# Stream app logs for a specific Fly process group.
+# Parameters: `app` (required app name), `process` (default: api).
+
+fly-logs app process="api":
+	fly logs --app {{app}} --process-group {{process}}

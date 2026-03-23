@@ -12,6 +12,7 @@
 		"prisma": "prisma",
 		"start": "node dist/app/server.js",
 		"scheduler:tick": "pnpm exec tsx src/jobs/schedulers/registrationTick.ts",
+		"scheduler:loop": "pnpm exec tsx src/jobs/schedulers/registrationTicker.ts",
 		"worker:notifications": "pnpm exec tsx src/jobs/notificationWorker.ts",
 		"worker:sub-selection": "pnpm exec tsx src/jobs/subSelectionWorker.ts"
 	},
