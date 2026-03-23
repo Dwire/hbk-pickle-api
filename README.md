@@ -17,6 +17,7 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - Phone signup/login and profile basics with E.164 normalization
 - Auth requests log Twilio Verify send/check outcomes for debugging
 - Auth context derives user identity from bearer JWTs for resolvers
+- Production startup validation rejects weak/short JWT secrets and blocks placeholders like `dev-secret`
 - Authenticated users can update their display name via GraphQL
 - Authenticated users can upload/replace/delete profile photos via Cloudflare direct-upload intents and completion mutations
 - Profile photo direct-upload intents call Cloudflare with multipart form payloads (required media type for `/images/v2/direct_upload`)
@@ -66,6 +67,7 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - Notification scheduling and delivery
 - Debuggable backend runtime via `just run-debug` / `just run-debug-brk` (Node inspector + auto-reload)
 - Combined job monitor via `just jobs-watch` (both workers + repeating scheduler tick in one terminal)
+- Fly.io production deployment with dedicated process groups for API, workers, and scheduler plus pre-deploy Prisma migrations
 - Local seed data generation for one default organization and three 3-week leagues (2 archived + 1 active), with mirrored league memberships and randomized historical registrations/sub signups (preserves protected user)
 
 ## Folder Structure
@@ -78,6 +80,7 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - src/shared: Logger, config, phone normalization, time helpers, constants
 - prisma: Schema and migrations
 - docs/features: Feature documentation
+- deployment: `Dockerfile`, `.dockerignore`, and `fly.toml`
 
 ## Key Files
 
@@ -94,12 +97,16 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - src/shared/logger.ts: Pino logger wrapper
 - src/scripts/seed.ts: Seed script for local demo data
 - src/jobs/subSelectionWorker.ts: Bull worker for selection recalculation and sub selection notifications
+- src/jobs/schedulers/registrationTicker.ts: Long-running scheduler loop entrypoint for production background execution
+- src/jobs/schedulers/runRegistrationTick.ts: Shared single-tick scheduler orchestration
 - src/integrations/cloudflare/cloudflareImagesClient.ts: Cloudflare direct-upload/create/details/delete API wrapper
 - src/integrations/cloudflare/profileImageUrl.ts: Delivery URL builder for configured avatar variant
+- Dockerfile: Multi-stage production image build for Fly deploys
+- fly.toml: Fly process groups, HTTP service, health checks, and release migration command
 
 ## Documentation
 
-- docs/features: One doc per feature module with responsibilities and data flow (see organizations-memberships.md for tenancy/auth model, profile-photos.md for Cloudflare upload flows, account-deletion.md for self-serve hard delete semantics, utc-time.md for UTC contract, dev-debugging.md for local debugger workflow, and jobs-watch.md for local worker+ticker orchestration)
+- docs/features: One doc per feature module with responsibilities and data flow (see organizations-memberships.md for tenancy/auth model, profile-photos.md for Cloudflare upload flows, account-deletion.md for self-serve hard delete semantics, utc-time.md for UTC contract, dev-debugging.md for local debugger workflow, jobs-watch.md for local worker+ticker orchestration, and fly-deployment.md for production deployment/runbook guidance)
 
 ## Local Development (Postman)
 
@@ -133,6 +140,31 @@ Mutations (auth requires Twilio in production; stubbed locally).
 - `CLOUDFLARE_IMAGES_DELIVERY_HASH`: Optional until first image upload; when unset, `profileImageUrl` resolves to `null` and delivery URLs are not built.
 - `CLOUDFLARE_IMAGES_AVATAR_VARIANT`: Named variant for avatar rendering (default: `avatar`).
 - `CLOUDFLARE_IMAGES_UPLOAD_EXPIRY_SECONDS`: Direct-upload intent expiry in seconds (default: `900`, max `86400`).
+
+### Fly.io Deployment
+
+- Install and authenticate Fly CLI (`fly auth login` or `fly auth signup`).
+- Initialize app setup without deploying: `just fly-launch <app> <org> iad`.
+- Replace the placeholder app name in `fly.toml`: `just fly-set-app-name <app>`.
+- Create and attach managed Postgres:
+  - `just fly-create-postgres <pg-name> <org> iad development`
+  - `just fly-attach-postgres <pg-app-name> <app>`
+- Create Redis and capture private URL: `just fly-create-redis` (set this as `REDIS_URL` in `.env.fly`).
+- Create `.env.fly` with required production values (`DATABASE_URL`, `REDIS_URL`, Twilio, Firebase, JWT secret, Cloudflare values, `NODE_ENV=production`, `PORT=8080`).
+- Generate a production JWT secret with `just auth-generate-jwt-secret 48` and set it as `AUTH_JWT_SECRET` in `.env.fly`.
+- Optional scheduler override: `SCHEDULER_TICK_SECONDS` (default `60`).
+- Stage/import secrets: `just fly-secrets-import .env.fly`.
+- Deploy: `just fly-deploy`.
+- Scale all production process groups to one machine in `iad`: `just fly-scale-prod <app> iad`.
+- Validate and monitor:
+  - `just fly-status <app>`
+  - `just fly-logs <app> api` (or `notifications`, `sub_selection`, `scheduler`)
+- Fly process groups:
+  - `api`: GraphQL server + `/healthz` endpoint for Fly checks
+  - `notifications`: Push notification worker
+  - `sub_selection`: Sub-selection worker
+  - `scheduler`: Continuous scheduler loop
+- Rollback basics: use Fly release history to identify and revert to a known-good release, then re-check `/healthz` and worker logs.
 
 ### Local Jobs Monitoring
 

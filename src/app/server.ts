@@ -9,10 +9,17 @@ import { buildContext } from './context.js'
 import { schema } from './graphql/schema.js'
 
 const app = express()
+const graphQlPath = '/graphql'
+const healthCheckPath = '/healthz'
+const httpStatusOk = 200
+const healthStatusOk = 'ok'
 
 app.use(httpLogger)
 app.use(cors())
 app.use(express.json())
+app.get(healthCheckPath, (_req, res) => {
+  res.status(httpStatusOk).json({ status: healthStatusOk })
+})
 
 const apolloServer = new ApolloServer({
   schema,
@@ -21,7 +28,7 @@ const apolloServer = new ApolloServer({
 
 const startServer = async (): Promise<void> => {
   await apolloServer.start()
-  apolloServer.applyMiddleware({ app, path: '/graphql' })
+  apolloServer.applyMiddleware({ app, path: graphQlPath })
 
   app.listen(config.port, () => {
     logger.info({ port: config.port }, 'GraphQL server listening')

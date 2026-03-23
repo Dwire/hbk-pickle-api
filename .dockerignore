@@ -1,0 +1,14 @@
+.git
+.roo
+.qodo
+.gemini
+.vscode
+node_modules
+dist
+.env
+.env.*
+coverage
+tmp
+temp
+*.log
+pnpm-debug.log

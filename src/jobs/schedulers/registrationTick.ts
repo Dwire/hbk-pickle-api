@@ -1,18 +1,8 @@
 import { logger } from '../../shared/logger.js'
 
-import { RegistrationScheduler } from './registrationScheduler.js'
+import { runRegistrationTick } from './runRegistrationTick.js'
 
-const scheduler = new RegistrationScheduler()
-
-const tick = async (): Promise<void> => {
-  const now = new Date()
-  await scheduler.queueRegistrationCloseWarnings(now)
-  await scheduler.queueSessionStartWarnings(now)
-  await scheduler.queueSubSelection(now)
-  await scheduler.cleanupStaleProfilePhotoUploadIntents(now)
-}
-
-tick()
+runRegistrationTick(new Date())
   .then(() => {
     logger.info('Scheduler tick complete')
     process.exit(0)
