@@ -348,6 +348,12 @@ fly-scale-prod app region="iad":
 fly-status app:
 	fly status --app {{app}}
 
+# Run a local proxy tunnel to a managed Postgres cluster for GUI tools (Postico, TablePlus, etc.).
+# Parameters: `cluster_id` (required managed Postgres cluster id), `local_port` (default: 16380), `bind_addr` (default: 127.0.0.1).
+
+fly-mpg-proxy cluster_id local_port="16380" bind_addr="127.0.0.1":
+	fly mpg proxy {{cluster_id}} --local-port {{local_port}} --bind-addr {{bind_addr}}
+
 # Stream app logs for a specific Fly process group.
 # Parameters: `app` (required app name), `process` (default: api).
 

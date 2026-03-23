@@ -37,6 +37,8 @@
 - Ongoing deploys:
   - Deploy changes with the same `fly.toml` process topology.
   - Check process health/status and logs per process group.
+- Database tooling:
+  - Use `just fly-mpg-proxy <cluster-id>` for a stable local MPG tunnel (`127.0.0.1:16380`) when connecting GUI database clients.
 - Runtime safety:
   - API startup fails in `NODE_ENV=production` if `AUTH_JWT_SECRET` is shorter than 32 characters or uses a blocked weak placeholder.
 - Rollback basics:

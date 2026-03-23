@@ -159,6 +159,7 @@ Mutations (auth requires Twilio in production; stubbed locally).
 - Validate and monitor:
   - `just fly-status <app>`
   - `just fly-logs <app> api` (or `notifications`, `sub_selection`, `scheduler`)
+- For Postico/GUI DB access, run `just fly-mpg-proxy <cluster-id>` and connect to `127.0.0.1:16380`.
 - Fly process groups:
   - `api`: GraphQL server + `/healthz` endpoint for Fly checks
   - `notifications`: Push notification worker
