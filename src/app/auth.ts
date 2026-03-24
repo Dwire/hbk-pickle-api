@@ -16,6 +16,7 @@ const sessionMissingMessage = 'Session missing'
 const occurrenceMissingMessage = 'Session occurrence missing'
 const slotAssignmentMissingMessage = 'Slot assignment missing'
 const leagueAccessRequiredMessage = 'League access required'
+const leagueOrganizationMismatchMessage = 'League does not belong to organization'
 const leagueMembershipStatusActive = 'ACTIVE'
 const leagueStatusActive = 'ACTIVE'
 const multipleActiveLeaguesMessage = 'Multiple active leagues found; provide leagueId'
@@ -228,6 +229,53 @@ export const resolveEffectiveLeagueAccess = async (
     userId,
     leagueId: candidate.leagueId,
     organizationId: candidate.organizationId
+  }
+}
+
+/**
+ * Resolves member league access within a required organization context.
+ * - Uses explicit league when provided and enforces org match.
+ * - Otherwise resolves the organization's active league.
+ * - Enforces standard league access checks in both flows.
+ */
+export const resolveEffectiveLeagueAccessForOrganization = async (
+  context: AppContext,
+  organizationId: string,
+  leagueId: string | null | undefined
+): Promise<{ userId: string; leagueId: string; organizationId: string }> => {
+  const userId = requireAuth(context)
+  await requireExistingUser(context, userId)
+
+  if (leagueId) {
+    await requireLeagueAccess(context, leagueId)
+    const resolvedOrganizationId = await resolveLeagueOrganizationId(context, leagueId)
+    if (resolvedOrganizationId !== organizationId) {
+      throw new Error(leagueOrganizationMismatchMessage)
+    }
+
+    return { userId, leagueId, organizationId }
+  }
+
+  const activeLeague = await context.prisma.league.findFirst({
+    where: {
+      organizationId,
+      status: leagueStatusActive
+    },
+    select: {
+      id: true
+    }
+  })
+
+  if (!activeLeague) {
+    throw new Error(leagueAccessRequiredMessage)
+  }
+
+  context.request.authzCache.orgIdByLeagueId.set(activeLeague.id, organizationId)
+  await requireLeagueAccess(context, activeLeague.id)
+  return {
+    userId,
+    leagueId: activeLeague.id,
+    organizationId
   }
 }
 

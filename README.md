@@ -41,7 +41,7 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - Phone-based slot assignment that creates placeholder users (`isOnApp = false`) until first verified login and auto-activates league membership
 - League lifecycle via `LeagueStatus` (`DRAFT`, `UPCOMING`, `ACTIVE`, `ARCHIVED`) with one `ACTIVE` league enforced per organization
 - Session lifecycle via `SessionStatus` (`ACTIVE`, `ARCHIVED`)
-- Weekly (Eastern) session occurrences listing by optional `leagueId`, with automatic effective-league resolution when omitted and Monday preview rows visible from Sunday 8am ET
+- Weekly (Eastern) session occurrences listing by required `organizationId` and optional `leagueId`, with active-league-in-organization fallback when omitted and Monday preview rows visible from Sunday 8am ET
 - Session occurrences have lifecycle status (`ACTIVE`/`CANCELED`, default `ACTIVE`) and `sessionsWeek` exposes `occurrenceStatus` while still returning canceled occurrences
 - Admin occurrence create/update validates that `startsAt`/`endsAt` remain within the parent league `startDate`/`endDate` bounds
 - Admin occurrence delete auto-cancels when participation history exists; otherwise hard-deletes
@@ -63,7 +63,7 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - Sub ordering uses signup queue time (`signedUpAt`); cancel + re-sub places the user at the end of the sub list
 - sessionsWeek attendingCount reflects ATTENDING registrations only (canceled/declined excluded)
 - sessionsWeek returns `registeredUsers` and `subUsers` participant objects (`id`, `displayName`, `profileImageUrl`) for ATTENDING registrations and ACTIVE/SELECTED sub signups
-- Member `league`, `rules`, and `sessionsWeek` queries support explicit `leagueId` or effective-league fallback with access enforcement
+- Member `league`, `rules`, and `sessionsWeek` queries require `organizationId`, support optional `leagueId`, and enforce that explicit league ids belong to the provided organization
 - Notification scheduling and delivery
 - Debuggable backend runtime via `just run-debug` / `just run-debug-brk` (Node inspector + auto-reload)
 - Combined job monitor via `just jobs-watch` (both workers + repeating scheduler tick in one terminal)
@@ -107,6 +107,10 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 ## Documentation
 
 - docs/features: One doc per feature module with responsibilities and data flow (see organizations-memberships.md for tenancy/auth model, profile-photos.md for Cloudflare upload flows, account-deletion.md for self-serve hard delete semantics, utc-time.md for UTC contract, dev-debugging.md for local debugger workflow, jobs-watch.md for local worker+ticker orchestration, and fly-deployment.md for production deployment/runbook guidance)
+
+## API Contract Notes
+
+- 2026-03-24 (breaking): `league`, `rules`, and `sessionsWeek` now require `organizationId`. Optional `leagueId` remains supported, but when provided it must belong to the specified organization. New signatures: `league(organizationId: ID!, leagueId: ID)`, `rules(organizationId: ID!, leagueId: ID)`, `sessionsWeek(organizationId: ID!, leagueId: ID)`.
 
 ## Local Development (Postman)
 
