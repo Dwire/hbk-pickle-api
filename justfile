@@ -239,13 +239,13 @@ prisma-studio:
 migrate-status:
 	pnpm prisma migrate status
 
-# Seed database with demo league, users, sessions, and assignments.
+# Seed database with a destructive full wipe + fresh Demo/HBK seed leagues, users, sessions, and assignments.
 # Parameters: none.
 
 seed: typecheck
 	pnpm exec tsx src/scripts/seed.ts
 
-# Reset database (schema push) and reseed demo data.
+# Reset database (schema push) and then run destructive full-wipe seed.
 # Parameters: none.
 
 reset-seed: db-push seed

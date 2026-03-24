@@ -11,12 +11,15 @@ import {
 
 const hbkPickleOrganizationName = 'HBK Pickle'
 const hbkPickleOrganizationSlug = 'hbk-pickle'
-const legacyHbkOrganizationSlug = 'hbk-rec-league'
 const demoOrganizationName = 'Demo Org'
 const demoOrganizationSlug = 'demo-org'
+const hbkDemoLeagueName = 'HBK Demo League'
 
 const seedLeagueNamePrefix = 'Seed League'
 const seedLeagueTimeZone = 'America/New_York'
+const ownerMembershipRole = 'OWNER'
+const productionNodeEnvironment = 'production'
+const stagingNodeEnvironment = 'staging'
 
 const seedPhonePrefix = '+155500000'
 const seedPhoneStart = 1
@@ -47,20 +50,44 @@ const secondPastLeagueStartOffsetWeeks = -(secondPastLeagueDurationWeeks + leagu
 const firstPastLeagueStartOffsetWeeks = secondPastLeagueStartOffsetWeeks - (firstPastLeagueDurationWeeks + leagueGapWeeks)
 const currentLeagueStartOffsetWeeks = 0
 
-const protectedUsers = [
+const namedSeedUsers = [
   {
-    id: '714415e3-5239-4db0-9800-add7cc45c4c9',
-    phoneNumber: '+1555990000',
-    displayName: 'Seed Protected Player'
+    phoneNumber: '+18607121554',
+    displayName: 'Kyle Venn',
+    ownerOrganizationSlugs: [demoOrganizationSlug]
   },
   {
-    id: 'ca463e7b-f880-4c0d-bcc1-0f6eb06871cb',
+    phoneNumber: '+19176816829',
+    displayName: 'Assaf Packin',
+    ownerOrganizationSlugs: [demoOrganizationSlug]
+  },
+  {
+    phoneNumber: '+14017931073',
+    displayName: 'Gregory Dwyer',
+    ownerOrganizationSlugs: [hbkPickleOrganizationSlug, demoOrganizationSlug]
+  },
+  {
     phoneNumber: '+12019068870',
-    displayName: 'Elma Crabbe'
+    displayName: 'Elma Crabbe',
+    ownerOrganizationSlugs: [hbkPickleOrganizationSlug, demoOrganizationSlug]
   }
 ] as const
-
-const protectedUserIds: ReadonlySet<string> = new Set(protectedUsers.map((user) => user.id))
+const appTablesToTruncate = [
+  '"Notification"',
+  '"SubSignup"',
+  '"SessionRegistration"',
+  '"SessionOccurrence"',
+  '"SlotAssignment"',
+  '"LeagueMembership"',
+  '"LeagueRule"',
+  '"Session"',
+  '"League"',
+  '"OrganizationMembership"',
+  '"UserDevice"',
+  '"ProfilePhotoUploadIntent"',
+  '"User"',
+  '"Organization"'
+] as const
 
 const seedFirstNames = [
   'Avery',
@@ -153,6 +180,16 @@ type AssignmentSeed = {
   userId: string
 }
 
+type SeedOrganization = {
+  id: string
+  slug: string
+}
+
+type SeedOrganizations = {
+  hbkOrganization: SeedOrganization
+  demoOrganization: SeedOrganization
+}
+
 const sessionTimeConfigs: SessionTimeConfig[] = [
   {
     label: 'Early',
@@ -214,27 +251,13 @@ const buildSessionTemplates = (): SessionTemplateConfig[] =>
   )
 
 const getSeedGeneratedUserCount = (sessionTemplates: SessionTemplateConfig[]) =>
-  sessionTemplates.length * playersPerSession - protectedUsers.length
+  sessionTemplates.length * playersPerSession - namedSeedUsers.length
 
 const getSeedName = (index: number): string => {
   const firstName = seedFirstNames[index % seedFirstNames.length]
   const lastNameIndex = Math.floor(index / seedFirstNames.length) % seedLastNames.length
   const lastName = seedLastNames[lastNameIndex]
   return `${firstName} ${lastName}`
-}
-
-const isSeedPhoneNumber = (phoneNumber: string): boolean => {
-  if (!phoneNumber.startsWith(seedPhonePrefix)) {
-    return false
-  }
-
-  const suffix = phoneNumber.slice(seedPhonePrefix.length)
-  if (suffix.length !== seedPhoneSuffixWidth) {
-    return false
-  }
-
-  const numericSuffix = Number(suffix)
-  return Number.isInteger(numericSuffix) && numericSuffix >= seedPhoneStart && numericSuffix <= seedPhoneEnd
 }
 
 const ensureSeedCounts = (sessionTemplates: SessionTemplateConfig[]) => {
@@ -245,7 +268,7 @@ const ensureSeedCounts = (sessionTemplates: SessionTemplateConfig[]) => {
   const activeLeagueCount = leagueSeedDefinitions.filter((league) => league.status === 'ACTIVE').length
 
   if (seedGeneratedUserCount <= 0) {
-    throw new Error('Seed user count must be greater than zero after reserving protected users')
+    throw new Error('Seed user count must be greater than zero after reserving named seed users')
   }
 
   if (seedGeneratedUserCount > maxSeedPhoneCount) {
@@ -420,81 +443,34 @@ const pickRandomValues = <T>(values: T[], count: number): T[] => {
   return shuffleValues(values).slice(0, maxCount)
 }
 
-const deleteLeagueGraph = async (leagueIds: string[]) => {
-  if (leagueIds.length === 0) {
-    return
+const assertSafeSeedEnvironment = () => {
+  const nodeEnvironment = process.env.NODE_ENV?.toLowerCase()
+  if (nodeEnvironment === productionNodeEnvironment || nodeEnvironment === stagingNodeEnvironment) {
+    throw new Error(`Refusing destructive seed wipe for NODE_ENV=${nodeEnvironment}`)
   }
-
-  const sessions = await prisma.session.findMany({
-    where: { leagueId: { in: leagueIds } },
-    select: { id: true }
-  })
-  const sessionIds = sessions.map((session) => session.id)
-
-  const occurrences = sessionIds.length
-    ? await prisma.sessionOccurrence.findMany({
-        where: { sessionId: { in: sessionIds } },
-        select: { id: true }
-      })
-    : []
-  const occurrenceIds = occurrences.map((occurrence) => occurrence.id)
-
-  if (occurrenceIds.length > 0) {
-    await prisma.notification.deleteMany({ where: { occurrenceId: { in: occurrenceIds } } })
-    await prisma.subSignup.deleteMany({ where: { occurrenceId: { in: occurrenceIds } } })
-    await prisma.sessionRegistration.deleteMany({ where: { occurrenceId: { in: occurrenceIds } } })
-  }
-
-  await prisma.slotAssignment.deleteMany({ where: { leagueId: { in: leagueIds } } })
-  await prisma.leagueMembership.deleteMany({ where: { leagueId: { in: leagueIds } } })
-  await prisma.leagueRule.deleteMany({ where: { leagueId: { in: leagueIds } } })
-
-  if (sessionIds.length > 0) {
-    await prisma.sessionOccurrence.deleteMany({ where: { sessionId: { in: sessionIds } } })
-    await prisma.session.deleteMany({ where: { id: { in: sessionIds } } })
-  }
-
-  await prisma.league.deleteMany({ where: { id: { in: leagueIds } } })
 }
 
-const deleteOrganizationAndDependencies = async (organizationId: string) => {
-  const leagues = await prisma.league.findMany({
-    where: { organizationId },
-    select: { id: true }
-  })
-
-  await deleteLeagueGraph(leagues.map((league) => league.id))
-  await prisma.organizationMembership.deleteMany({ where: { organizationId } })
-  await prisma.organization.delete({ where: { id: organizationId } })
+const wipeAllData = async () => {
+  const tableList = appTablesToTruncate.join(', ')
+  await prisma.$executeRawUnsafe(`TRUNCATE TABLE ${tableList} RESTART IDENTITY CASCADE`)
+  logger.info({ tableCount: appTablesToTruncate.length }, 'Wiped all app data before seeding')
 }
 
-const ensureOrganizations = async () => {
-  const legacyOrganization = await prisma.organization.findUnique({ where: { slug: legacyHbkOrganizationSlug } })
-  const canonicalHbkOrganization = await prisma.organization.findUnique({ where: { slug: hbkPickleOrganizationSlug } })
-
-  if (legacyOrganization && canonicalHbkOrganization) {
-    await deleteOrganizationAndDependencies(legacyOrganization.id)
-    logger.info({ removedOrganizationId: legacyOrganization.id }, 'Removed legacy HBK organization after slug migration')
-  }
-
-  const hbkOrganization = legacyOrganization && !canonicalHbkOrganization
-    ? await prisma.organization.update({
-        where: { id: legacyOrganization.id },
-        data: {
-          name: hbkPickleOrganizationName,
-          slug: hbkPickleOrganizationSlug
-        }
-      })
-    : await prisma.organization.upsert({
-        where: { slug: hbkPickleOrganizationSlug },
-        create: {
-          name: hbkPickleOrganizationName,
-          slug: hbkPickleOrganizationSlug
-        },
-        update: {
-          name: hbkPickleOrganizationName
-        }
-      })
+const ensureOrganizations = async (): Promise<SeedOrganizations> => {
+  const hbkOrganization = await prisma.organization.upsert({
+    where: { slug: hbkPickleOrganizationSlug },
+    create: {
+      name: hbkPickleOrganizationName,
+      slug: hbkPickleOrganizationSlug
+    },
+    update: {
+      name: hbkPickleOrganizationName
+    },
+    select: {
+      id: true,
+      slug: true
+    }
+  })
 
   const demoOrganization = await prisma.organization.upsert({
     where: { slug: demoOrganizationSlug },
@@ -504,27 +480,29 @@ const ensureOrganizations = async () => {
     },
     update: {
       name: demoOrganizationName
+    },
+    select: {
+      id: true,
+      slug: true
     }
   })
 
   return { hbkOrganization, demoOrganization }
 }
 
-const ensureProtectedUsers = async () => {
+const ensureNamedUsers = async () => {
   const users = []
 
-  for (const protectedUser of protectedUsers) {
+  for (const namedSeedUser of namedSeedUsers) {
     const user = await prisma.user.upsert({
-      where: { id: protectedUser.id },
+      where: { phoneNumber: namedSeedUser.phoneNumber },
       create: {
-        id: protectedUser.id,
-        phoneNumber: protectedUser.phoneNumber,
-        displayName: protectedUser.displayName,
+        phoneNumber: namedSeedUser.phoneNumber,
+        displayName: namedSeedUser.displayName,
         isOnApp: true
       },
       update: {
-        phoneNumber: protectedUser.phoneNumber,
-        displayName: protectedUser.displayName,
+        displayName: namedSeedUser.displayName,
         isOnApp: true
       }
     })
@@ -535,83 +513,43 @@ const ensureProtectedUsers = async () => {
   return users
 }
 
-const findSeededUsers = async () => {
-  const users = await prisma.user.findMany({
-    where: {
-      phoneNumber: {
-        startsWith: seedPhonePrefix
-      }
-    },
-    select: {
-      id: true,
-      phoneNumber: true
-    }
-  })
-
-  return users.filter((user) => isSeedPhoneNumber(user.phoneNumber) && !protectedUserIds.has(user.id))
-}
-
-const clearSeededUserData = async (seededUserIds: string[]) => {
-  if (seededUserIds.length === 0) {
-    return
-  }
-
-  const notificationResult = await prisma.notification.deleteMany({ where: { userId: { in: seededUserIds } } })
-  logger.info({ count: notificationResult.count }, 'Cleared seeded-user notifications')
-
-  const subSignupResult = await prisma.subSignup.deleteMany({ where: { userId: { in: seededUserIds } } })
-  logger.info({ count: subSignupResult.count }, 'Cleared seeded-user sub signups')
-
-  const registrationResult = await prisma.sessionRegistration.deleteMany({ where: { userId: { in: seededUserIds } } })
-  logger.info({ count: registrationResult.count }, 'Cleared seeded-user session registrations')
-
-  const assignmentResult = await prisma.slotAssignment.deleteMany({ where: { userId: { in: seededUserIds } } })
-  logger.info({ count: assignmentResult.count }, 'Cleared seeded-user slot assignments')
-
-  const leagueMembershipResult = await prisma.leagueMembership.deleteMany({ where: { userId: { in: seededUserIds } } })
-  logger.info({ count: leagueMembershipResult.count }, 'Cleared seeded-user league memberships')
-
-  const organizationMembershipResult = await prisma.organizationMembership.deleteMany({
-    where: { userId: { in: seededUserIds } }
-  })
-  logger.info({ count: organizationMembershipResult.count }, 'Cleared seeded-user organization memberships')
-
-  const deviceResult = await prisma.userDevice.deleteMany({ where: { userId: { in: seededUserIds } } })
-  logger.info({ count: deviceResult.count }, 'Cleared seeded-user devices')
-
-  const userResult = await prisma.user.deleteMany({ where: { id: { in: seededUserIds } } })
-  logger.info({ count: userResult.count }, 'Cleared seeded users')
-}
-
-const clearDemoOrganizationLeagues = async (organizationId: string) => {
-  const leagues = await prisma.league.findMany({
-    where: { organizationId },
-    select: { id: true }
-  })
-
-  await deleteLeagueGraph(leagues.map((league) => league.id))
-}
-
-const ensureProtectedOwners = async (
-  organizationIds: string[],
-  users: { id: string }[]
+const ensureNamedOwners = async (
+  organizations: SeedOrganizations,
+  users: { id: string; phoneNumber: string }[]
 ) => {
-  for (const organizationId of organizationIds) {
-    for (const user of users) {
+  const organizationIdBySlug = new Map<string, string>([
+    [organizations.hbkOrganization.slug, organizations.hbkOrganization.id],
+    [organizations.demoOrganization.slug, organizations.demoOrganization.id]
+  ])
+
+  const userIdByPhoneNumber = new Map<string, string>(users.map((user) => [user.phoneNumber, user.id]))
+
+  for (const namedSeedUser of namedSeedUsers) {
+    const userId = userIdByPhoneNumber.get(namedSeedUser.phoneNumber)
+    if (!userId) {
+      throw new Error(`Named seed user not found for owner assignment: ${namedSeedUser.phoneNumber}`)
+    }
+
+    for (const organizationSlug of namedSeedUser.ownerOrganizationSlugs) {
+      const organizationId = organizationIdBySlug.get(organizationSlug)
+      if (!organizationId) {
+        throw new Error(`Organization slug not found for owner assignment: ${organizationSlug}`)
+      }
+
       await prisma.organizationMembership.upsert({
         where: {
           organizationId_userId: {
             organizationId,
-            userId: user.id
+            userId
           }
         },
         create: {
           organizationId,
-          userId: user.id,
-          role: 'OWNER'
+          userId,
+          role: ownerMembershipRole
         },
         update: {
-          role: 'OWNER'
+          role: ownerMembershipRole
         }
       })
     }
@@ -834,18 +772,100 @@ const seedDemoOrganizationLeagues = async (organizationId: string, users: { id: 
   }
 }
 
-const seedLeagues = async () => {
-  const organizations = await ensureOrganizations()
-  await clearDemoOrganizationLeagues(organizations.demoOrganization.id)
+const seedHbkOrganizationLeague = async (organizationId: string) => {
+  const sessionTemplates = buildSessionTemplates()
+  ensureSeedCounts(sessionTemplates)
 
-  const seededUsers = await findSeededUsers()
-  await clearSeededUserData(seededUsers.map((user) => user.id))
+  const currentWeekStartDateParts = getCurrentWeekStartDateParts()
+  const activeDemoLeagueConfig = buildLeagueSeedConfigs(currentWeekStartDateParts).find((league) => league.status === 'ACTIVE')
+  if (!activeDemoLeagueConfig) {
+    throw new Error('Expected one ACTIVE league config when seeding HBK demo league')
+  }
 
-  const persistedProtectedUsers = await ensureProtectedUsers()
-  await ensureProtectedOwners(
-    [organizations.hbkOrganization.id, organizations.demoOrganization.id],
-    persistedProtectedUsers
+  const leagueEndDateParts = shiftDateByDays(
+    activeDemoLeagueConfig.startDateParts,
+    daysInWeek * activeDemoLeagueConfig.durationWeeks
   )
+
+  const league = await prisma.league.create({
+    data: {
+      organizationId,
+      name: hbkDemoLeagueName,
+      timeZone: seedLeagueTimeZone,
+      startDate: toEasternMidnightUtc(activeDemoLeagueConfig.startDateParts),
+      endDate: toEasternMidnightUtc(leagueEndDateParts),
+      status: activeDemoLeagueConfig.status
+    }
+  })
+
+  const leagueRules = buildLeagueRules(league.id)
+  if (leagueRules.length > 0) {
+    await prisma.leagueRule.createMany({ data: leagueRules })
+  }
+
+  const sessions = await Promise.all(
+    sessionTemplates.map((template) =>
+      prisma.session.create({
+        data: {
+          leagueId: league.id,
+          title: template.title,
+          weekday: template.weekday,
+          startTimeMinutes: template.startTimeMinutes,
+          endTimeMinutes: template.endTimeMinutes,
+          capacity: template.capacity
+        }
+      })
+    )
+  )
+
+  const occurrences = sessions.flatMap((session) =>
+    buildOccurrenceDates(
+      activeDemoLeagueConfig.startDateParts,
+      activeDemoLeagueConfig.durationWeeks,
+      session.weekday,
+      session.startTimeMinutes,
+      session.endTimeMinutes
+    ).map((occurrence) => ({
+      sessionId: session.id,
+      startsAt: occurrence.startsAt,
+      endsAt: occurrence.endsAt
+    }))
+  )
+
+  if (occurrences.length > 0) {
+    await prisma.sessionOccurrence.createMany({ data: occurrences })
+  }
+
+  logger.info(
+    {
+      leagueId: league.id,
+      leagueName: league.name,
+      leagueStatus: league.status,
+      leagueDurationWeeks: activeDemoLeagueConfig.durationWeeks,
+      sessions: sessions.length,
+      occurrences: occurrences.length,
+      assignments: 0,
+      registrations: 0,
+      subSignups: 0,
+      rules: leagueRules.length
+    },
+    'Seeded HBK demo league data without users'
+  )
+
+  return {
+    leagueCount: 1,
+    totalSessionCount: sessions.length,
+    totalOccurrenceCount: occurrences.length
+  }
+}
+
+const seedLeagues = async () => {
+  assertSafeSeedEnvironment()
+  await wipeAllData()
+
+  const organizations = await ensureOrganizations()
+  const persistedNamedUsers = await ensureNamedUsers()
+  await ensureNamedOwners(organizations, persistedNamedUsers)
 
   const sessionTemplates = buildSessionTemplates()
   ensureSeedCounts(sessionTemplates)
@@ -866,17 +886,20 @@ const seedLeagues = async () => {
     throw new Error('Seeded user creation count mismatch')
   }
 
-  const usersForAssignments = [...persistedProtectedUsers, ...createdSeedUsers]
+  const usersForAssignments = [...persistedNamedUsers, ...createdSeedUsers]
   const demoSeedResult = await seedDemoOrganizationLeagues(organizations.demoOrganization.id, usersForAssignments)
+  const hbkSeedResult = await seedHbkOrganizationLeague(organizations.hbkOrganization.id)
 
   logger.info(
     {
       organizations: [organizations.hbkOrganization.slug, organizations.demoOrganization.slug],
-      protectedUsers: persistedProtectedUsers.length,
+      namedUsers: persistedNamedUsers.length,
       seededUsers: createdSeedUsers.length,
-      leagues: demoSeedResult.leagueCount,
-      sessions: demoSeedResult.totalSessionCount,
-      occurrences: demoSeedResult.totalOccurrenceCount,
+      leagues: demoSeedResult.leagueCount + hbkSeedResult.leagueCount,
+      demoLeagues: demoSeedResult.leagueCount,
+      hbkLeagues: hbkSeedResult.leagueCount,
+      sessions: demoSeedResult.totalSessionCount + hbkSeedResult.totalSessionCount,
+      occurrences: demoSeedResult.totalOccurrenceCount + hbkSeedResult.totalOccurrenceCount,
       assignments: demoSeedResult.totalAssignmentCount,
       registrations: demoSeedResult.totalRegistrationCount,
       subSignups: demoSeedResult.totalSubSignupCount
