@@ -30,6 +30,7 @@ import type { AppContext } from '../context.js'
 import {
   requireAuth,
   resolveEffectiveLeagueAccess,
+  resolveEffectiveLeagueAccessForOrganization,
   resolveLeagueOrganizationId,
   requireLeagueAdminOrOwner,
   requireOccurrenceAdminOrOwner,
@@ -97,6 +98,8 @@ const userRoleAdmin = 'ADMIN'
 const userRoleOwner = 'OWNER'
 const roleContextOrganizationIdField = 'roleContextOrganizationId'
 const roleContextLeagueIdField = 'roleContextLeagueId'
+const organizationIdArgumentRequiredMessage =
+  'organizationId must be a non-empty string'
 
 type UserRole = 'PLAYER' | 'ADMIN' | 'OWNER'
 
@@ -124,11 +127,25 @@ const normalizeLeagueIdArgument = (
   return trimmedLeagueId.length > 0 ? trimmedLeagueId : null
 }
 
+const normalizeOrganizationIdArgument = (organizationId: string): string => {
+  const trimmedOrganizationId = organizationId.trim()
+  if (trimmedOrganizationId.length === 0) {
+    throw new Error(organizationIdArgumentRequiredMessage)
+  }
+
+  return trimmedOrganizationId
+}
+
 const resolveMemberLeagueAccess = async (
   context: AppContext,
+  organizationId: string,
   leagueId: string | null | undefined
 ) => {
-  return resolveEffectiveLeagueAccess(context, normalizeLeagueIdArgument(leagueId))
+  return resolveEffectiveLeagueAccessForOrganization(
+    context,
+    normalizeOrganizationIdArgument(organizationId),
+    normalizeLeagueIdArgument(leagueId)
+  )
 }
 
 const isUserRole = (value: unknown): value is UserRole => {
@@ -564,9 +581,9 @@ const typeDefs = `#graphql
   type Query {
     me: User
     organizations: [Organization!]!
-    league(leagueId: ID): League
-    rules(leagueId: ID): [LeagueRule!]!
-    sessionsWeek(leagueId: ID): [Session!]!
+    league(organizationId: ID!, leagueId: ID): League
+    rules(organizationId: ID!, leagueId: ID): [LeagueRule!]!
+    sessionsWeek(organizationId: ID!, leagueId: ID): [Session!]!
     sessionOccurrenceDetail(occurrenceId: ID!): SessionOccurrenceDetail!
     profileStats: ProfileStats!
     adminLeagues(organizationId: ID!, status: LeagueStatus, search: String, pagination: AdminPaginationInput): AdminLeaguesResult!
@@ -751,7 +768,7 @@ const resolvers = {
       }
 
       try {
-        const leagueAccess = await resolveMemberLeagueAccess(context, null)
+        const leagueAccess = await resolveEffectiveLeagueAccess(context, null)
         return attachUserRoleContext(user, {
           [roleContextLeagueIdField]: leagueAccess.leagueId
         })
@@ -766,29 +783,41 @@ const resolvers = {
     },
     league: async (
       _: unknown,
-      args: { leagueId?: string | null },
+      args: { organizationId: string; leagueId?: string | null },
       context: AppContext
     ) => {
-      const leagueAccess = await resolveMemberLeagueAccess(context, args.leagueId)
+      const leagueAccess = await resolveMemberLeagueAccess(
+        context,
+        args.organizationId,
+        args.leagueId
+      )
       return context.prisma.league.findUnique({
         where: { id: leagueAccess.leagueId }
       })
     },
     rules: async (
       _: unknown,
-      args: { leagueId?: string | null },
+      args: { organizationId: string; leagueId?: string | null },
       context: AppContext
     ) => {
-      const leagueAccess = await resolveMemberLeagueAccess(context, args.leagueId)
+      const leagueAccess = await resolveMemberLeagueAccess(
+        context,
+        args.organizationId,
+        args.leagueId
+      )
       const ruleService = new RuleService()
       return ruleService.listRules(leagueAccess.leagueId)
     },
     sessionsWeek: async (
       _: unknown,
-      args: { leagueId?: string | null },
+      args: { organizationId: string; leagueId?: string | null },
       context: AppContext
     ) => {
-      const leagueAccess = await resolveMemberLeagueAccess(context, args.leagueId)
+      const leagueAccess = await resolveMemberLeagueAccess(
+        context,
+        args.organizationId,
+        args.leagueId
+      )
       const sessionService = new SessionService()
       return sessionService.listSessionsWeek(
         leagueAccess.leagueId,
