@@ -338,10 +338,10 @@ fly-deploy:
 # Parameters: `app` (required app name), `region` (default: iad).
 
 fly-scale-prod app region="iad":
-	fly scale count 1 --app {{app}} --region {{region}} --process-group api
-	fly scale count 1 --app {{app}} --region {{region}} --process-group notifications
-	fly scale count 1 --app {{app}} --region {{region}} --process-group sub_selection
-	fly scale count 1 --app {{app}} --region {{region}} --process-group scheduler
+	fly scale count 1 --app {{app}} --region {{region}} -g api
+	fly scale count 1 --app {{app}} --region {{region}} -g notifications
+	fly scale count 1 --app {{app}} --region {{region}} -g sub_selection
+	fly scale count 1 --app {{app}} --region {{region}} -g scheduler
 
 # Show app status and current machine/process health.
 # Parameters: `app` (required app name).
@@ -355,8 +355,21 @@ fly-status app:
 fly-mpg-proxy cluster_id local_port="16380" bind_addr="127.0.0.1":
 	fly mpg proxy {{cluster_id}} --local-port {{local_port}} --bind-addr {{bind_addr}}
 
-# Stream app logs for a specific Fly process group.
-# Parameters: `app` (required app name), `process` (default: api).
+# Stream app logs (optionally filtered by region).
+# Parameters: `app` (required app name), `region` (optional; default empty).
 
-fly-logs app process="api":
-	fly logs --app {{app}} --process-group {{process}}
+fly-logs app region="":
+	#!/usr/bin/env bash
+	set -euo pipefail
+
+	if [[ -n "{{region}}" ]]; then
+		fly logs --app {{app}} --region {{region}}
+	else
+		fly logs --app {{app}}
+	fi
+
+# Stream app logs for a specific Fly machine id.
+# Parameters: `app` (required app name), `machine` (required machine id).
+
+fly-machine-logs app machine:
+	fly logs --app {{app}} --machine {{machine}}

@@ -162,7 +162,8 @@ Mutations (auth requires Twilio in production; stubbed locally).
 - Scale all production process groups to one machine in `iad`: `just fly-scale-prod <app> iad`.
 - Validate and monitor:
   - `just fly-status <app>`
-  - `just fly-logs <app> api` (or `notifications`, `sub_selection`, `scheduler`)
+  - `just fly-logs <app>` (optionally `just fly-logs <app> iad` for region filter)
+  - `just fly-machine-logs <app> <machine-id>` for machine-specific logs
 - For Postico/GUI DB access, run `just fly-mpg-proxy <cluster-id>` and connect to `127.0.0.1:16380`.
 - Fly process groups:
   - `api`: GraphQL server + `/healthz` endpoint for Fly checks
