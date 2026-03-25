@@ -240,6 +240,7 @@ migrate-status:
 	pnpm prisma migrate status
 
 # Seed database with a destructive full wipe + fresh Demo/HBK seed leagues, users, sessions, and assignments.
+# For intentional prod/staging wipe, set `SEED_ALLOW_PROD_WIPE=true` and `SEED_WIPE_CONFIRM=WIPE_PRODUCTION_DB`.
 # Parameters: none.
 
 seed: typecheck

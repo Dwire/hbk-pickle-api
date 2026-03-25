@@ -20,6 +20,10 @@ const seedLeagueTimeZone = 'America/New_York'
 const ownerMembershipRole = 'OWNER'
 const productionNodeEnvironment = 'production'
 const stagingNodeEnvironment = 'staging'
+const allowProdSeedWipeEnvKey = 'SEED_ALLOW_PROD_WIPE'
+const allowProdSeedWipeEnabledValue = 'true'
+const prodSeedWipeConfirmEnvKey = 'SEED_WIPE_CONFIRM'
+const prodSeedWipeConfirmExpectedValue = 'WIPE_PRODUCTION_DB'
 
 const seedPhonePrefix = '+155500000'
 const seedPhoneStart = 1
@@ -445,9 +449,29 @@ const pickRandomValues = <T>(values: T[], count: number): T[] => {
 
 const assertSafeSeedEnvironment = () => {
   const nodeEnvironment = process.env.NODE_ENV?.toLowerCase()
-  if (nodeEnvironment === productionNodeEnvironment || nodeEnvironment === stagingNodeEnvironment) {
-    throw new Error(`Refusing destructive seed wipe for NODE_ENV=${nodeEnvironment}`)
+  if (nodeEnvironment !== productionNodeEnvironment && nodeEnvironment !== stagingNodeEnvironment) {
+    return
   }
+
+  const allowProdWipe = process.env[allowProdSeedWipeEnvKey]?.toLowerCase() === allowProdSeedWipeEnabledValue
+  const wipeConfirmation = process.env[prodSeedWipeConfirmEnvKey]
+
+  if (allowProdWipe && wipeConfirmation === prodSeedWipeConfirmExpectedValue) {
+    logger.warn(
+      {
+        nodeEnvironment,
+        [allowProdSeedWipeEnvKey]: process.env[allowProdSeedWipeEnvKey],
+        [prodSeedWipeConfirmEnvKey]: wipeConfirmation
+      },
+      'Production seed wipe override enabled'
+    )
+    return
+  }
+
+  throw new Error(
+    `Refusing destructive seed wipe for NODE_ENV=${nodeEnvironment}. ` +
+      `Set ${allowProdSeedWipeEnvKey}=true and ${prodSeedWipeConfirmEnvKey}=${prodSeedWipeConfirmExpectedValue} to override.`
+  )
 }
 
 const wipeAllData = async () => {

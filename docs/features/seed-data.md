@@ -8,6 +8,7 @@
 
 - Seed script performs a full app-data wipe (`TRUNCATE ... CASCADE`) before creating fresh seed data.
 - Seed aborts destructive wipe when `NODE_ENV` is `production` or `staging`.
+- Production/staging wipe can be intentionally overridden only when both `SEED_ALLOW_PROD_WIPE=true` and `SEED_WIPE_CONFIRM=WIPE_PRODUCTION_DB` are provided.
 - Seed script recreates two canonical organizations (`hbk-pickle`, `demo-org`) and upserts four named users.
 - Seed creates Demo Org leagues (two archived + one active) with fixed durations of 8, 10, and 12 weeks using UTC instants derived from Eastern rules.
 - Seed also creates one active HBK demo league with the same weekly session templates and occurrence schedule as the active Demo Org league, but without users.
