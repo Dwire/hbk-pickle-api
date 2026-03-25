@@ -16,6 +16,7 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 
 - Phone signup/login and profile basics with E.164 normalization
 - Auth requests log Twilio Verify send/check outcomes for debugging
+- Optional App Review OTP bypass supports one env-whitelisted E.164 phone + static code, gated by explicit enable flag
 - Auth context derives user identity from bearer JWTs for resolvers
 - Production startup validation rejects weak/short JWT secrets and blocks placeholders like `dev-secret`
 - Authenticated users can update their display name via GraphQL
@@ -27,6 +28,7 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - Organization tenancy with per-org league lifecycle (`League.organizationId`)
 - Organization-scoped admin roles via `OrganizationMembership.role` (`OWNER`, `ADMIN`)
 - Authenticated `organizations` query lists the organizations where the caller has membership
+- Authenticated `playerOrganizations` query lists organizations where the caller has ACTIVE league membership on ACTIVE, UPCOMING, or ARCHIVED leagues
 - League participation membership via `LeagueMembership.status` (`ACTIVE`, `REMOVED`)
 - Resolver-level org/league auth guards with request-scoped league/org resolution memoization
 - GraphQL `User.role` derived from organization membership context (`OWNER`/`ADMIN`) with `PLAYER` fallback
@@ -111,6 +113,7 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 ## API Contract Notes
 
 - 2026-03-24 (breaking): `league`, `rules`, and `sessionsWeek` now require `organizationId`. Optional `leagueId` remains supported, but when provided it must belong to the specified organization. New signatures: `league(organizationId: ID!, leagueId: ID)`, `rules(organizationId: ID!, leagueId: ID)`, `sessionsWeek(organizationId: ID!, leagueId: ID)`.
+- 2026-03-25: Added `playerOrganizations: [Organization!]!` for player eligibility, derived from ACTIVE league memberships on ACTIVE, UPCOMING, or ARCHIVED leagues. Existing `organizations` semantics are unchanged and remain organization-membership based.
 
 ## Local Development (Postman)
 
@@ -136,6 +139,22 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - Body: GraphQL
 
 Mutations (auth requires Twilio in production; stubbed locally).
+
+### Auth Review OTP Environment
+
+- `AUTH_REVIEW_OTP_ENABLED`: Enables single-account review OTP bypass when set to `true` (default `false`).
+- `AUTH_REVIEW_OTP_PHONE_NUMBER`: Exact whitelisted E.164 phone number used by App Review.
+- `AUTH_REVIEW_OTP_CODE`: Static verification code accepted only for `AUTH_REVIEW_OTP_PHONE_NUMBER`.
+- When bypass is enabled, both `AUTH_REVIEW_OTP_PHONE_NUMBER` and `AUTH_REVIEW_OTP_CODE` are required or startup fails.
+- Bypass does not auto-create users; the whitelisted phone number must already exist in the DB.
+- After App Review approval, disable bypass and rotate the code before the next review cycle.
+
+### App Store Connect Review Notes Template
+
+- Test phone number: `<AUTH_REVIEW_OTP_PHONE_NUMBER>`.
+- Verification code: `<AUTH_REVIEW_OTP_CODE>`.
+- Login flow: open app, enter test phone number, request code, enter verification code, continue to app home.
+- Account provisioning: test account is pre-provisioned in backend and kept active for review.
 
 ### Profile Photo Environment
 
