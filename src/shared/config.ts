@@ -42,6 +42,10 @@ const strictBooleanFromEnv = z.preprocess((value) => {
   }
 
   const normalizedValue = value.trim().toLowerCase()
+  if (normalizedValue.length === 0) {
+    return undefined
+  }
+
   if (normalizedValue === 'true') {
     return true
   }
