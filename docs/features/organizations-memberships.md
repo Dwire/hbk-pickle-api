@@ -11,6 +11,7 @@
 - League membership status: `ACTIVE` and `REMOVED`.
 - GraphQL `User.role` resolves from organization membership role (`OWNER`/`ADMIN`) and defaults to `PLAYER`.
 - Authenticated users can query `organizations` to list organizations where they hold membership.
+- Authenticated users can query `playerOrganizations` to list organizations where they hold ACTIVE league membership on ACTIVE, UPCOMING, or ARCHIVED leagues.
 - Member-facing `league`, `rules`, and `sessionsWeek` require `organizationId` and accept optional `leagueId`; when omitted, the API resolves the active league in that organization.
 - League participation (`registerForSession`, `signupAsSub`) requires `LeagueMembership.status = ACTIVE`.
 
@@ -29,6 +30,7 @@
 - Leagues belong to organizations via `League.organizationId`.
 - Admin operations resolve target league/session/occurrence and require org membership role `OWNER|ADMIN`.
 - Member-facing reads allow either active league membership or org admin/owner membership.
+- `playerOrganizations` derives eligibility from league membership only (not org-admin-only membership).
 - Member-facing read queries require explicit `organizationId`; if `leagueId` is omitted, the resolver uses the active league in that organization.
 - If both `organizationId` and `leagueId` are provided, the league must belong to that organization.
 - Register/sub mutations require active league membership and do not grant bypass for org admins.

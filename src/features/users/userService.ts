@@ -1,5 +1,6 @@
 import { subSelectionQueue } from '../../integrations/bull/queue.js'
 import type {
+  LeagueStatus,
   OrganizationMembershipRole,
   RegistrationStatus,
   SubSignupStatus,
@@ -16,6 +17,7 @@ const logLoadedProfileStatsMemberships = 'Loaded user league memberships for pro
 const logResolvedProfileStatsCurrentLeague = 'Resolved current league for profile stats'
 const logComputedProfileStatsCounts = 'Computed profile stats counts'
 const logLoadedUserOrganizations = 'Loaded user organizations'
+const logLoadedPlayerOrganizations = 'Loaded player organizations'
 const logResolvedDeleteAccountGuard = 'Resolved delete account owner/admin guard'
 const logBlockedDeleteAccountSoleAdmin = 'Blocked delete account for sole org owner/admin'
 const logDeletingAccount = 'Deleting user account and associated records'
@@ -35,8 +37,15 @@ const subSignupStatusesNotCanceled: SubSignupStatus[] = [
 ]
 const registrationStatusAttending: RegistrationStatus = 'ATTENDING'
 const sessionOccurrenceStatusActive = 'ACTIVE'
-const leagueStatusActive = 'ACTIVE'
+const leagueStatusActive: LeagueStatus = 'ACTIVE'
+const leagueStatusUpcoming: LeagueStatus = 'UPCOMING'
+const leagueStatusArchived: LeagueStatus = 'ARCHIVED'
 const leagueMembershipStatusActive = 'ACTIVE'
+const leagueStatusesForPlayerOrganizations: LeagueStatus[] = [
+  leagueStatusActive,
+  leagueStatusUpcoming,
+  leagueStatusArchived
+]
 const organizationMembershipRoleOwner: OrganizationMembershipRole = 'OWNER'
 const organizationMembershipRoleAdmin: OrganizationMembershipRole = 'ADMIN'
 const organizationMembershipRolesWithAdminAccess: OrganizationMembershipRole[] =
@@ -265,6 +274,40 @@ export class UserService {
     logger.info({ userId, organizationCount: memberships.length }, logLoadedUserOrganizations)
 
     return memberships.map((membership) => membership.organization)
+  }
+
+  /**
+   * List organizations where the authenticated user is eligible through league memberships.
+   * Eligibility requires ACTIVE league membership on ACTIVE, UPCOMING, or ARCHIVED leagues.
+   */
+  public async listPlayerOrganizations(userId: string): Promise<OrganizationSummary[]> {
+    const organizations = await prisma.organization.findMany({
+      where: {
+        leagues: {
+          some: {
+            status: { in: leagueStatusesForPlayerOrganizations },
+            memberships: {
+              some: {
+                userId,
+                status: leagueMembershipStatusActive
+              }
+            }
+          }
+        }
+      },
+      orderBy: {
+        name: sortOrderAscending
+      },
+      select: {
+        id: true,
+        name: true,
+        slug: true
+      }
+    })
+
+    logger.info({ userId, organizationCount: organizations.length }, logLoadedPlayerOrganizations)
+
+    return organizations
   }
 
   /**

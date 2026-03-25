@@ -28,6 +28,7 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - Organization tenancy with per-org league lifecycle (`League.organizationId`)
 - Organization-scoped admin roles via `OrganizationMembership.role` (`OWNER`, `ADMIN`)
 - Authenticated `organizations` query lists the organizations where the caller has membership
+- Authenticated `playerOrganizations` query lists organizations where the caller has ACTIVE league membership on ACTIVE, UPCOMING, or ARCHIVED leagues
 - League participation membership via `LeagueMembership.status` (`ACTIVE`, `REMOVED`)
 - Resolver-level org/league auth guards with request-scoped league/org resolution memoization
 - GraphQL `User.role` derived from organization membership context (`OWNER`/`ADMIN`) with `PLAYER` fallback
@@ -112,6 +113,7 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 ## API Contract Notes
 
 - 2026-03-24 (breaking): `league`, `rules`, and `sessionsWeek` now require `organizationId`. Optional `leagueId` remains supported, but when provided it must belong to the specified organization. New signatures: `league(organizationId: ID!, leagueId: ID)`, `rules(organizationId: ID!, leagueId: ID)`, `sessionsWeek(organizationId: ID!, leagueId: ID)`.
+- 2026-03-25: Added `playerOrganizations: [Organization!]!` for player eligibility, derived from ACTIVE league memberships on ACTIVE, UPCOMING, or ARCHIVED leagues. Existing `organizations` semantics are unchanged and remain organization-membership based.
 
 ## Local Development (Postman)
 

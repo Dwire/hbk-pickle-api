@@ -581,6 +581,7 @@ const typeDefs = `#graphql
   type Query {
     me: User
     organizations: [Organization!]!
+    playerOrganizations: [Organization!]!
     league(organizationId: ID!, leagueId: ID): League
     rules(organizationId: ID!, leagueId: ID): [LeagueRule!]!
     sessionsWeek(organizationId: ID!, leagueId: ID): [Session!]!
@@ -780,6 +781,11 @@ const resolvers = {
       const userId = requireAuth(context)
       const userService = new UserService()
       return userService.listOrganizations(userId)
+    },
+    playerOrganizations: async (_: unknown, __: unknown, context: AppContext) => {
+      const userId = requireAuth(context)
+      const userService = new UserService()
+      return userService.listPlayerOrganizations(userId)
     },
     league: async (
       _: unknown,
