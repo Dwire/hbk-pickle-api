@@ -16,6 +16,7 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 
 - Phone signup/login and profile basics with E.164 normalization
 - Auth requests log Twilio Verify send/check outcomes for debugging
+- Optional App Review OTP bypass supports one env-whitelisted E.164 phone + static code, gated by explicit enable flag
 - Auth context derives user identity from bearer JWTs for resolvers
 - Production startup validation rejects weak/short JWT secrets and blocks placeholders like `dev-secret`
 - Authenticated users can update their display name via GraphQL
@@ -136,6 +137,22 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - Body: GraphQL
 
 Mutations (auth requires Twilio in production; stubbed locally).
+
+### Auth Review OTP Environment
+
+- `AUTH_REVIEW_OTP_ENABLED`: Enables single-account review OTP bypass when set to `true` (default `false`).
+- `AUTH_REVIEW_OTP_PHONE_NUMBER`: Exact whitelisted E.164 phone number used by App Review.
+- `AUTH_REVIEW_OTP_CODE`: Static verification code accepted only for `AUTH_REVIEW_OTP_PHONE_NUMBER`.
+- When bypass is enabled, both `AUTH_REVIEW_OTP_PHONE_NUMBER` and `AUTH_REVIEW_OTP_CODE` are required or startup fails.
+- Bypass does not auto-create users; the whitelisted phone number must already exist in the DB.
+- After App Review approval, disable bypass and rotate the code before the next review cycle.
+
+### App Store Connect Review Notes Template
+
+- Test phone number: `<AUTH_REVIEW_OTP_PHONE_NUMBER>`.
+- Verification code: `<AUTH_REVIEW_OTP_CODE>`.
+- Login flow: open app, enter test phone number, request code, enter verification code, continue to app home.
+- Account provisioning: test account is pre-provisioned in backend and kept active for review.
 
 ### Profile Photo Environment
 
