@@ -169,14 +169,12 @@ export type AdminCreatePlayerInput = {
   leagueId: string
   phoneNumber: string
   displayName?: string | null
-  isOnApp?: boolean | null
 }
 
 export type AdminUpdatePlayerInput = {
   organizationId: string
   phoneNumber?: string | null
   displayName?: string | null
-  isOnApp?: boolean | null
   role?: AdminUserRole | null
 }
 
@@ -1756,12 +1754,10 @@ export class AdminManagementService {
         where: { phoneNumber: normalizedPhoneNumber },
         create: {
           phoneNumber: normalizedPhoneNumber,
-          displayName: input.displayName ?? null,
-          isOnApp: input.isOnApp ?? false
+          displayName: input.displayName ?? null
         },
         update: {
-          displayName: nextDisplayName,
-          isOnApp: input.isOnApp ?? undefined
+          displayName: nextDisplayName
         }
       })
 
@@ -1839,8 +1835,7 @@ export class AdminManagementService {
         where: { id: playerId },
         data: {
           phoneNumber: normalizedPhoneNumber,
-          displayName: nextDisplayName,
-          isOnApp: input.isOnApp ?? undefined
+          displayName: nextDisplayName
         }
       })
 

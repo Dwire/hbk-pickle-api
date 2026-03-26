@@ -12,6 +12,11 @@ import { prisma } from '../../shared/prisma.js'
 const logUpsertingDisplayName = 'Upserting user display name'
 const logUpsertedDisplayName = 'Upserted user display name'
 const messageUserMissingForDisplayName = 'User missing for display name update'
+const logCompletingOnboarding = 'Completing onboarding for user'
+const logCompletedOnboarding = 'Completed onboarding for user'
+const logSkippedCompleteOnboardingAlreadyOnApp =
+  'Skipped completeOnboarding because user is already on app'
+const messageUserMissingForOnboarding = 'User missing for onboarding completion'
 const messageUserMissingForDelete = 'User missing for account deletion'
 const logLoadedProfileStatsMemberships = 'Loaded user league memberships for profile stats'
 const logResolvedProfileStatsCurrentLeague = 'Resolved current league for profile stats'
@@ -328,6 +333,36 @@ export class UserService {
     })
 
     logger.info({ userId, displayName, updatedAt: updatedUser.updatedAt }, logUpsertedDisplayName)
+    return updatedUser
+  }
+
+  /**
+   * Mark the authenticated user as having completed onboarding.
+   * - Idempotent: returns current user when already on app.
+   * - Throws if user does not exist.
+   */
+  public async completeOnboarding(userId: string): Promise<User> {
+    logger.info({ userId }, logCompletingOnboarding)
+    const existingUser = await prisma.user.findUnique({
+      where: { id: userId }
+    })
+
+    if (!existingUser) {
+      logger.warn({ userId }, messageUserMissingForOnboarding)
+      throw new Error(messageUserMissingForOnboarding)
+    }
+
+    if (existingUser.isOnApp) {
+      logger.info({ userId }, logSkippedCompleteOnboardingAlreadyOnApp)
+      return existingUser
+    }
+
+    const updatedUser = await prisma.user.update({
+      where: { id: userId },
+      data: { isOnApp: true }
+    })
+
+    logger.info({ userId, updatedAt: updatedUser.updatedAt }, logCompletedOnboarding)
     return updatedUser
   }
 

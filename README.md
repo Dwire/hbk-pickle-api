@@ -29,6 +29,8 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - Organization-scoped admin roles via `OrganizationMembership.role` (`OWNER`, `ADMIN`)
 - Authenticated `organizations` query lists the organizations where the caller has membership
 - Authenticated `playerOrganizations` query lists organizations where the caller has ACTIVE league membership on ACTIVE, UPCOMING, or ARCHIVED leagues
+- `verifyPhoneCode` returns `AuthPayload.eligibleOrganizations` using the same eligibility logic and ordering as `playerOrganizations`
+- Authenticated `completeOnboarding` mutation sets `isOnApp = true` idempotently when onboarding is finished
 - League participation membership via `LeagueMembership.status` (`ACTIVE`, `REMOVED`)
 - Resolver-level org/league auth guards with request-scoped league/org resolution memoization
 - GraphQL `User.role` derived from organization membership context (`OWNER`/`ADMIN`) with `PLAYER` fallback
@@ -38,9 +40,10 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - Admin league detail occurrence rows include `attendingCount` (ATTENDING), `subCount` (ACTIVE + SELECTED), and `openSpots` (`max(capacity - attendingCount, 0)`)
 - Admin player management mutations where `adminCreatePlayer` requires `leagueId` and atomically ensures `LeagueMembership.ACTIVE`
 - `adminUpdatePlayer` supports org-scoped role updates (`PLAYER`/`ADMIN`) with owner-protection constraints
+- Admin player create/update no longer accept `isOnApp`; onboarding completion owns that flag
 - Admin direct status control mutations for registrations and sub signups, gated by `LeagueMembership.ACTIVE`
 - Admin league rules mutations for league-scoped upsert and template-copy workflows
-- Phone-based slot assignment that creates placeholder users (`isOnApp = false`) until first verified login and auto-activates league membership
+- Phone-based slot assignment that creates placeholder users (`isOnApp = false`) until onboarding completion and auto-activates league membership
 - League lifecycle via `LeagueStatus` (`DRAFT`, `UPCOMING`, `ACTIVE`, `ARCHIVED`) with one `ACTIVE` league enforced per organization
 - Session lifecycle via `SessionStatus` (`ACTIVE`, `ARCHIVED`)
 - Weekly (Eastern) session occurrences listing by required `organizationId` and optional `leagueId`, with active-league-in-organization fallback when omitted and Monday preview rows visible from Sunday 8am ET
@@ -114,6 +117,7 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 
 - 2026-03-24 (breaking): `league`, `rules`, and `sessionsWeek` now require `organizationId`. Optional `leagueId` remains supported, but when provided it must belong to the specified organization. New signatures: `league(organizationId: ID!, leagueId: ID)`, `rules(organizationId: ID!, leagueId: ID)`, `sessionsWeek(organizationId: ID!, leagueId: ID)`.
 - 2026-03-25: Added `playerOrganizations: [Organization!]!` for player eligibility, derived from ACTIVE league memberships on ACTIVE, UPCOMING, or ARCHIVED leagues. Existing `organizations` semantics are unchanged and remain organization-membership based.
+- 2026-03-26 (breaking): `verifyPhoneCode` now returns `eligibleOrganizations` on `AuthPayload`; added `completeOnboarding: User!`; removed `isOnApp` from `AdminCreatePlayerInput` and `AdminUpdatePlayerInput`. OTP verification no longer sets `isOnApp`.
 
 ## Local Development (Postman)
 
