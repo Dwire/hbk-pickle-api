@@ -1,6 +1,10 @@
 set dotenv-load := true
 set shell := ["mise", "exec", "--", "/bin/zsh", "-cu"]
 
+# List all available recipes.
+list:
+  @just --list
+
 # Install dependencies with pnpm.
 
 install:
