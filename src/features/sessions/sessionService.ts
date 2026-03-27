@@ -852,8 +852,13 @@ export class SessionService {
               status: true
             }
           }),
-          prisma.slotAssignment.findFirst({
-            where: { userId, sessionId: occurrence.sessionId }
+          prisma.slotAssignment.findUnique({
+            where: {
+              leagueId_userId: {
+                leagueId: occurrence.session.leagueId,
+                userId
+              }
+            }
           }),
           prisma.sessionRegistration.findFirst({
             where: { userId, occurrenceId, status: registrationStatusAttending }
@@ -865,7 +870,8 @@ export class SessionService {
 
       const hasActiveLeagueMembership =
         leagueMembership?.status === leagueMembershipStatusActive
-      const isUserAssignedToSession = Boolean(assignment)
+      const isUserAssignedToSession =
+        assignment?.sessionId === occurrence.sessionId
 
       canRegister = Boolean(
         hasActiveLeagueMembership && isUserAssignedToSession && !hasRegistration

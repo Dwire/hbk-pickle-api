@@ -1,7 +1,4 @@
--- User-centric performance indexes for registration, sub signup, and assignment checks
-CREATE INDEX "SlotAssignment_userId_sessionId_idx"
-  ON "SlotAssignment"("userId", "sessionId");
-
+-- User-centric performance indexes for registration and sub signup checks
 CREATE INDEX "SessionRegistration_userId_status_idx"
   ON "SessionRegistration"("userId", "status");
 
