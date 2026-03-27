@@ -73,7 +73,7 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - Debuggable backend runtime via `just run-debug` / `just run-debug-brk` (Node inspector + auto-reload)
 - Combined job monitor via `just jobs-watch` (both workers + repeating scheduler tick in one terminal)
 - Fly.io production deployment with dedicated process groups for API, workers, and scheduler plus pre-deploy Prisma migrations
-- Local seed data generation with full app-data wipe (guarded outside prod/staging unless explicit override envs are set), canonical orgs (`hbk-pickle`, `demo-org`), four named owner users, deterministic generated seeded users, Demo Org leagues (2 archived + 1 active, 8/10/12 weeks), and one userless active HBK demo league on the same session/occurrence schedule
+- Local seed data generation with full app-data wipe (guarded outside prod/staging unless explicit override envs are set), canonical orgs (`hbk-pickle`, `demo-org`), optional private owner users from `SEED_PRIVATE_USERS_JSON` (slotted into Thursday/Friday sessions when present), deterministic generated seeded users, `Review User` as a Thursday/Friday player-only seed in the active Demo Org league, Demo Org leagues (2 archived + 1 active, 8/10/12 weeks), and one userless active HBK demo league on the same session/occurrence schedule
 
 ## Folder Structure
 
@@ -100,7 +100,7 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - src/shared/config.ts: Typed environment config
 - src/shared/phone.ts: E.164 phone normalization utility
 - src/shared/logger.ts: Pino logger wrapper
-- src/scripts/seed.ts: Full-wipe seed script for canonical orgs, named owner users, and Demo Org league/user generation
+- src/scripts/seed.ts: Full-wipe seed script for canonical orgs, optional private owner seed users (`SEED_PRIVATE_USERS_JSON`), and Demo Org league/user generation
 - src/jobs/subSelectionWorker.ts: Bull worker for selection recalculation and sub selection notifications
 - src/jobs/schedulers/registrationTicker.ts: Long-running scheduler loop entrypoint for production background execution
 - src/jobs/schedulers/runRegistrationTick.ts: Shared single-tick scheduler orchestration

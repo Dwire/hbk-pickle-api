@@ -9,7 +9,9 @@
 - Seed script performs a full app-data wipe (`TRUNCATE ... CASCADE`) before creating fresh seed data.
 - Seed aborts destructive wipe when `NODE_ENV` is `production` or `staging`.
 - Production/staging wipe can be intentionally overridden only when both `SEED_ALLOW_PROD_WIPE=true` and `SEED_WIPE_CONFIRM=WIPE_PRODUCTION_DB` are provided.
-- Seed script recreates two canonical organizations (`hbk-pickle`, `demo-org`) and upserts four named users.
+- Seed script recreates two canonical organizations (`hbk-pickle`, `demo-org`) and upserts `Review User`.
+- Optional private owner users can be supplied via `SEED_PRIVATE_USERS_JSON` with shape `[{ phoneNumber, displayName, ownerOrganizationSlugs }]`.
+- If `SEED_PRIVATE_USERS_JSON` is missing/blank (or `[]`), seed continues and logs a warning that owner users were skipped.
 - Seed creates Demo Org leagues (two archived + one active) with fixed durations of 8, 10, and 12 weeks using UTC instants derived from Eastern rules.
 - Seed also creates one active HBK demo league with the same weekly session templates and occurrence schedule as the active Demo Org league, but without users.
 - League rules, sessions, occurrences, slot assignments, and league memberships are re-created for Demo Org on each run.
@@ -23,15 +25,11 @@
 ## Data Flow
 
 - Seed wipes all app tables before any create/upsert actions.
-- Seed upserts named users:
-  - `Kyle Venn` (`+18607121554`)
-  - `Assaf Packin` (`+19176816829`)
-  - `Gregory Dwyer` (`+14017931073`)
-  - `Elma Crabbe` (`+12019068870`)
-- Seed assigns ownership:
-  - Kyle + Assaf: `OWNER` in Demo Org only.
-  - Gregory + Elma: `OWNER` in both organizations.
+- Seed upserts optional private owner users from `SEED_PRIVATE_USERS_JSON`.
+- Seed assigns ownership from each owner user’s `ownerOrganizationSlugs`.
+- Seeded owner users are deterministically assigned to Thursday/Friday session slots in seeded Demo Org leagues.
 - Seed generates deterministic real-name seeded users in the allowed phone range and marks them `isOnApp = true`.
 - Slot assignments are created per session and mirrored into `LeagueMembership(status=ACTIVE)`.
-- Named users are included in the Demo Org assignment pools across all seeded Demo leagues.
+- Owner users are included in the Demo Org assignment pools across all seeded Demo leagues.
+- `Review User` (`+15555556789`) is seeded as a player by upserting a Thursday/Friday slot assignment in the active Demo Org league and adding `LeagueMembership(status=ACTIVE)`, with no `OrganizationMembership` owner/admin role.
 - HBK demo league is scaffolded with rules, sessions, and occurrences only (no assignments, league memberships, registrations, or sub signups).
