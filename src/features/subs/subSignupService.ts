@@ -66,10 +66,15 @@ export class SubSignupService {
       throw new Error('User not active in this league')
     }
 
-    const assignment = await prisma.slotAssignment.findFirst({
-      where: { userId, sessionId: occurrence.sessionId }
+    const assignment = await prisma.slotAssignment.findUnique({
+      where: {
+        leagueId_userId: {
+          leagueId: occurrence.session.leagueId,
+          userId
+        }
+      }
     })
-    const isUserAssignedToSession = Boolean(assignment)
+    const isUserAssignedToSession = assignment?.sessionId === occurrence.sessionId
     logger.info({ occurrenceId, userId, isUserAssignedToSession }, logResolvedSubSignupAssignmentStatus)
 
     const { start, end } = getEasternDayRangeUtc(occurrence.startsAt)

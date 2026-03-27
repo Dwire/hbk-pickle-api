@@ -250,6 +250,7 @@ model SessionRegistration {
 
   @@unique([userId, occurrenceId])
   @@index([occurrenceId, status])
+  @@index([userId, status])
 }
 
 model SubSignup {
@@ -267,6 +268,7 @@ model SubSignup {
 
   @@unique([userId, occurrenceId])
   @@index([occurrenceId, status, signedUpAt])
+  @@index([userId, status])
 }
 
 model Notification {
