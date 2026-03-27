@@ -55,17 +55,11 @@ export class AuthService {
         throw new Error(missingReviewAccountMessage)
       }
 
-      const user = await prisma.user.update({
-        where: { id: existingUser.id },
-        data: { isOnApp: true },
-        select: { id: true }
-      })
-
-      const token = jwt.sign({ userId: user.id }, config.auth.jwtSecret, {
+      const token = jwt.sign({ userId: existingUser.id }, config.auth.jwtSecret, {
         expiresIn: jwtExpiresIn
       })
 
-      return { token, userId: user.id }
+      return { token, userId: existingUser.id }
     }
 
     const verification = await twilioClient.verify.v2
@@ -79,10 +73,10 @@ export class AuthService {
     const user = await prisma.user.upsert({
       where: { phoneNumber: normalizedPhoneNumber },
       create: {
-        phoneNumber: normalizedPhoneNumber,
-        isOnApp: true
+        phoneNumber: normalizedPhoneNumber
       },
-      update: { isOnApp: true }
+      update: {},
+      select: { id: true }
     })
 
     const token = jwt.sign({ userId: user.id }, config.auth.jwtSecret, {

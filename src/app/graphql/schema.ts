@@ -100,6 +100,7 @@ const roleContextOrganizationIdField = 'roleContextOrganizationId'
 const roleContextLeagueIdField = 'roleContextLeagueId'
 const organizationIdArgumentRequiredMessage =
   'organizationId must be a non-empty string'
+const userMissingAfterVerificationMessage = 'User missing after verification'
 
 type UserRole = 'PLAYER' | 'ADMIN' | 'OWNER'
 
@@ -377,6 +378,7 @@ const typeDefs = `#graphql
   type AuthPayload {
     token: String!
     user: User!
+    eligibleOrganizations: [Organization!]!
   }
 
   type ProfilePhotoUploadIntent {
@@ -548,14 +550,12 @@ const typeDefs = `#graphql
     leagueId: ID!
     phoneNumber: String!
     displayName: String
-    isOnApp: Boolean
   }
 
   input AdminUpdatePlayerInput {
     organizationId: ID!
     phoneNumber: String
     displayName: String
-    isOnApp: Boolean
     role: UserRole
   }
 
@@ -599,6 +599,7 @@ const typeDefs = `#graphql
     verifyPhoneCode(phoneNumber: String!, code: String!): AuthPayload!
     registerDevice(token: String!, platform: String!): Boolean!
     updateDisplayName(displayName: String!): User!
+    completeOnboarding: User!
     createMyProfilePhotoUploadIntent: ProfilePhotoUploadIntent!
     completeMyProfilePhotoUpload(imageId: ID!): User!
     deleteMyProfilePhoto: User!
@@ -951,12 +952,18 @@ const resolvers = {
       })
 
       if (!user) {
-        throw new Error('User missing after verification')
+        throw new Error(userMissingAfterVerificationMessage)
       }
+
+      const userService = new UserService()
+      const eligibleOrganizations = await userService.listPlayerOrganizations(
+        result.userId
+      )
 
       return {
         token: result.token,
-        user
+        user,
+        eligibleOrganizations
       }
     },
     registerDevice: async (
@@ -980,6 +987,11 @@ const resolvers = {
       const userId = requireAuth(context)
       const service = new UserService()
       return service.upsertDisplayName(userId, args.displayName)
+    },
+    completeOnboarding: async (_: unknown, __: unknown, context: AppContext) => {
+      const userId = requireAuth(context)
+      const service = new UserService()
+      return service.completeOnboarding(userId)
     },
     createMyProfilePhotoUploadIntent: async (
       _: unknown,
@@ -1274,7 +1286,6 @@ const resolvers = {
           leagueId: string
           phoneNumber: string
           displayName?: string | null
-          isOnApp?: boolean | null
         }
       },
       context: AppContext
@@ -1284,8 +1295,7 @@ const resolvers = {
       const user = await adminService.adminCreatePlayer({
         leagueId: args.input.leagueId,
         phoneNumber: args.input.phoneNumber,
-        displayName: args.input.displayName,
-        isOnApp: args.input.isOnApp
+        displayName: args.input.displayName
       })
       return attachUserRoleContext(user, {
         [roleContextLeagueIdField]: args.input.leagueId
@@ -1299,7 +1309,6 @@ const resolvers = {
           organizationId: string
           phoneNumber?: string | null
           displayName?: string | null
-          isOnApp?: boolean | null
           role?: AdminUserRole | null
         }
       },
@@ -1311,7 +1320,6 @@ const resolvers = {
         organizationId: args.input.organizationId,
         phoneNumber: args.input.phoneNumber,
         displayName: args.input.displayName,
-        isOnApp: args.input.isOnApp,
         role: args.input.role
       })
       return attachUserRoleContext(user, {
