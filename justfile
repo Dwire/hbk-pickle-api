@@ -63,7 +63,7 @@ run-debug-brk debug_port="9229" app_port="4000":
 build:
 	pnpm build
 
-# Run scheduler tick for notifications/registration warnings.
+# Run scheduler tick for reminders, demo-org autofill, sub-selection queueing, and stale-upload cleanup.
 
 scheduler-tick:
 	pnpm scheduler:tick
@@ -84,7 +84,7 @@ worker-notifications:
 worker-sub-selection:
 	pnpm worker:sub-selection
 
-# Run both workers and repeatedly execute scheduler ticks in one terminal.
+# Run both workers and repeatedly execute scheduler ticks (including demo-org autofill) in one terminal.
 # Parameters: `tick_seconds` (default: 30).
 
 jobs-watch tick_seconds="30":

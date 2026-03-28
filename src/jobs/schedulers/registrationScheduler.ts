@@ -8,6 +8,8 @@ import { getEasternRegistrationCloseWarningAt } from '../../shared/time.js'
 import { Prisma } from '../../generated/prisma/client.js'
 import type { NotificationKind } from '../../generated/prisma/client.js'
 
+import { DemoOrgAutofillService } from './demoOrgAutofillService.js'
+
 type QueuePayload = {
   notificationId: string
   deviceTokens: string[]
@@ -87,6 +89,7 @@ const sessionStartReminder: ReminderDefinition = {
 export class RegistrationScheduler {
   private sessionService = new SessionService()
   private profilePhotoService = new ProfilePhotoService()
+  private demoOrgAutofillService = new DemoOrgAutofillService()
 
   public async queueRegistrationCloseWarnings(now: Date): Promise<void> {
     await this.queueWarnings(now, registrationCloseReminder)
@@ -94,6 +97,10 @@ export class RegistrationScheduler {
 
   public async queueSessionStartWarnings(now: Date): Promise<void> {
     await this.queueWarnings(now, sessionStartReminder)
+  }
+
+  public async runDemoOrgAutofill(now: Date): Promise<void> {
+    await this.demoOrgAutofillService.runDemoOrgAutofillTick(now)
   }
 
   private async queueWarnings(
