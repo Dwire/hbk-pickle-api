@@ -652,7 +652,8 @@ const ensureNamedOwners = async (
 const ensureActiveLeaguePlayers = async (
   organizations: SeedOrganizations,
   activeLeagueId: string,
-  activeLeaguePlayerUsers: SeedActiveLeaguePlayerUser[]
+  activeLeaguePlayerUsers: SeedActiveLeaguePlayerUser[],
+  protectedUserIds: ReadonlySet<string>
 ) => {
   const demoOrganizationSlugValue = organizations.demoOrganization.slug
 
@@ -682,8 +683,62 @@ const ensureActiveLeaguePlayers = async (
     throw new Error('Expected Thursday/Friday sessions in active demo league for active league player assignment')
   }
 
+  const activeLeagueAssignments = await prisma.slotAssignment.findMany({
+    where: {
+      leagueId: activeLeagueId,
+      sessionId: {
+        in: lateWeekSessions.map((session) => session.id)
+      }
+    },
+    select: {
+      id: true,
+      sessionId: true,
+      userId: true
+    },
+    orderBy: [{ sessionId: 'asc' }, { createdAt: 'asc' }]
+  })
+
+  const removableAssignmentsBySessionId = new Map<string, { id: string; userId: string }[]>()
+  for (const assignment of activeLeagueAssignments) {
+    if (protectedUserIds.has(assignment.userId)) {
+      continue
+    }
+
+    const existingAssignments = removableAssignmentsBySessionId.get(assignment.sessionId) ?? []
+    existingAssignments.push({
+      id: assignment.id,
+      userId: assignment.userId
+    })
+    removableAssignmentsBySessionId.set(assignment.sessionId, existingAssignments)
+  }
+
   for (const [index, player] of persistedPlayers.entries()) {
     const targetSession = lateWeekSessions[index % lateWeekSessions.length]
+    const existingAssignment = activeLeagueAssignments.find((assignment) => assignment.userId === player.id)
+
+    if (!existingAssignment) {
+      const removableAssignments = removableAssignmentsBySessionId.get(targetSession.id) ?? []
+      const removedAssignment = removableAssignments.shift()
+
+      if (!removedAssignment) {
+        throw new Error(`No replaceable assignment available in session ${targetSession.id} for active league player seeding`)
+      }
+
+      await prisma.slotAssignment.delete({
+        where: {
+          id: removedAssignment.id
+        }
+      })
+
+      await prisma.leagueMembership.delete({
+        where: {
+          leagueId_userId: {
+            leagueId: activeLeagueId,
+            userId: removedAssignment.userId
+          }
+        }
+      })
+    }
 
     await prisma.slotAssignment.upsert({
       where: {
@@ -1103,7 +1158,12 @@ const seedLeagues = async () => {
   if (!demoSeedResult.activeLeagueId) {
     throw new Error('Expected active demo league id after seeding demo organization leagues')
   }
-  await ensureActiveLeaguePlayers(organizations, demoSeedResult.activeLeagueId, activeLeaguePlayerSeedUsers)
+  await ensureActiveLeaguePlayers(
+    organizations,
+    demoSeedResult.activeLeagueId,
+    activeLeaguePlayerSeedUsers,
+    preferredLateWeekUserIds
+  )
   const hbkSeedResult = await seedHbkOrganizationLeague(organizations.hbkOrganization.id)
 
   logger.info(
