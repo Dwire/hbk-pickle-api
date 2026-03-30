@@ -668,6 +668,8 @@ const ensureActiveLeaguePlayers = async (
       displayName: player.displayName
     }))
   )
+  const seededPlayerIds = persistedPlayers.map((player) => player.id)
+  const seededPlayerIdSet = new Set(seededPlayerIds)
 
   const lateWeekSessions = await prisma.session.findMany({
     where: {
@@ -698,9 +700,26 @@ const ensureActiveLeaguePlayers = async (
     orderBy: [{ sessionId: 'asc' }, { createdAt: 'asc' }]
   })
 
+  const existingLeagueAssignmentsForSeededPlayers = await prisma.slotAssignment.findMany({
+    where: {
+      leagueId: activeLeagueId,
+      userId: {
+        in: seededPlayerIds
+      }
+    },
+    select: {
+      userId: true
+    }
+  })
+
+  const existingAssignmentsByUserId = new Map<string, (typeof existingLeagueAssignmentsForSeededPlayers)[number]>()
+  for (const assignment of existingLeagueAssignmentsForSeededPlayers) {
+    existingAssignmentsByUserId.set(assignment.userId, assignment)
+  }
+
   const removableAssignmentsBySessionId = new Map<string, { id: string; userId: string }[]>()
   for (const assignment of activeLeagueAssignments) {
-    if (protectedUserIds.has(assignment.userId)) {
+    if (protectedUserIds.has(assignment.userId) || seededPlayerIdSet.has(assignment.userId)) {
       continue
     }
 
@@ -750,7 +769,7 @@ const ensureActiveLeaguePlayers = async (
 
   for (const [index, player] of persistedPlayers.entries()) {
     const targetSession = lateWeekSessions[index % lateWeekSessions.length]
-    const existingAssignment = activeLeagueAssignments.find((assignment) => assignment.userId === player.id)
+    const existingAssignment = existingAssignmentsByUserId.get(player.id)
 
     const removableAssignment = existingAssignment
       ? undefined
@@ -796,17 +815,25 @@ const ensureActiveLeaguePlayers = async (
           sessionId: targetSession.id
         }
       })
+
+      await tx.leagueMembership.upsert({
+        where: {
+          leagueId_userId: {
+            leagueId: activeLeagueId,
+            userId: player.id
+          }
+        },
+        create: {
+          leagueId: activeLeagueId,
+          userId: player.id,
+          status: 'ACTIVE' as const
+        },
+        update: {
+          status: 'ACTIVE' as const
+        }
+      })
     })
   }
-
-  await prisma.leagueMembership.createMany({
-    data: persistedPlayers.map((player) => ({
-      leagueId: activeLeagueId,
-      userId: player.id,
-      status: 'ACTIVE' as const
-    })),
-    skipDuplicates: true
-  })
 }
 
 const buildLeagueAssignments = (

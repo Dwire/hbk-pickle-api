@@ -32,5 +32,5 @@
 - Slot assignments are created per session and mirrored into `LeagueMembership(status=ACTIVE)`.
 - Owner users are included in the Demo Org assignment pools across all seeded Demo leagues.
 - `Demo User` (`+15555556789`) is seeded as a player by replacing one non-owner Thursday/Friday slot assignment in the active Demo Org league and adding `LeagueMembership(status=ACTIVE)`, with no `OrganizationMembership` owner/admin role.
-- If an active-league player seed user has no existing late-week assignment, seed removes one replaceable late-week assignment (preferring the target session, then other late-week sessions) and applies replacement writes in one transaction.
+- If an active-league player seed user has no existing league assignment, seed removes one replaceable late-week assignment (preferring the target session, then other late-week sessions), upserts the seeded user slot assignment, and upserts `LeagueMembership(status=ACTIVE)` in one per-player transaction.
 - HBK demo league is scaffolded with rules, sessions, and occurrences only (no assignments, league memberships, registrations, or sub signups).
