@@ -712,49 +712,90 @@ const ensureActiveLeaguePlayers = async (
     removableAssignmentsBySessionId.set(assignment.sessionId, existingAssignments)
   }
 
+  const tryShiftRemovableAssignment = (sessionId: string): { id: string; userId: string } | undefined => {
+    const assignments = removableAssignmentsBySessionId.get(sessionId)
+    if (!assignments || assignments.length === 0) {
+      return undefined
+    }
+
+    return assignments.shift()
+  }
+
+  const getRemovableAssignment = (targetSessionId: string): { id: string; userId: string } | undefined => {
+    const removableFromTarget = tryShiftRemovableAssignment(targetSessionId)
+    if (removableFromTarget) {
+      return removableFromTarget
+    }
+
+    for (const session of lateWeekSessions) {
+      if (session.id === targetSessionId) {
+        continue
+      }
+
+      const removableFromLateWeek = tryShiftRemovableAssignment(session.id)
+      if (removableFromLateWeek) {
+        return removableFromLateWeek
+      }
+    }
+
+    for (const sessionId of removableAssignmentsBySessionId.keys()) {
+      const removableFromAnySession = tryShiftRemovableAssignment(sessionId)
+      if (removableFromAnySession) {
+        return removableFromAnySession
+      }
+    }
+
+    return undefined
+  }
+
   for (const [index, player] of persistedPlayers.entries()) {
     const targetSession = lateWeekSessions[index % lateWeekSessions.length]
     const existingAssignment = activeLeagueAssignments.find((assignment) => assignment.userId === player.id)
 
-    if (!existingAssignment) {
-      const removableAssignments = removableAssignmentsBySessionId.get(targetSession.id) ?? []
-      const removedAssignment = removableAssignments.shift()
+    const removableAssignment = existingAssignment
+      ? undefined
+      : getRemovableAssignment(targetSession.id)
 
-      if (!removedAssignment) {
-        throw new Error(`No replaceable assignment available in session ${targetSession.id} for active league player seeding`)
+    if (!existingAssignment && !removableAssignment) {
+      throw new Error(
+        `No replaceable assignment available in any tracked session for active league player seeding (target session: ${targetSession.id})`
+      )
+    }
+
+    await prisma.$transaction(async (tx) => {
+      if (removableAssignment) {
+        await tx.slotAssignment.delete({
+          where: {
+            id: removableAssignment.id
+          }
+        })
+
+        await tx.leagueMembership.delete({
+          where: {
+            leagueId_userId: {
+              leagueId: activeLeagueId,
+              userId: removableAssignment.userId
+            }
+          }
+        })
       }
 
-      await prisma.slotAssignment.delete({
-        where: {
-          id: removedAssignment.id
-        }
-      })
-
-      await prisma.leagueMembership.delete({
+      await tx.slotAssignment.upsert({
         where: {
           leagueId_userId: {
             leagueId: activeLeagueId,
-            userId: removedAssignment.userId
+            userId: player.id
           }
+        },
+        create: {
+          leagueId: activeLeagueId,
+          userId: player.id,
+          sessionId: targetSession.id
+        },
+        update: {
+          sessionId: targetSession.id
         }
       })
-    }
-
-    await prisma.slotAssignment.upsert({
-      where: {
-        leagueId_userId: {
-          leagueId: activeLeagueId,
-          userId: player.id
-        }
-      },
-      create: {
-        leagueId: activeLeagueId,
-        userId: player.id,
-        sessionId: targetSession.id
-      },
-      update: {
-        sessionId: targetSession.id
-      }
     })
   }
 
