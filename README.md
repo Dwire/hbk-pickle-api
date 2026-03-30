@@ -74,7 +74,7 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - Debuggable backend runtime via `just run-debug` / `just run-debug-brk` (Node inspector + auto-reload)
 - Combined job monitor via `just jobs-watch` (both workers + repeating scheduler tick in one terminal)
 - Fly.io production deployment with dedicated process groups for API, workers, and scheduler plus pre-deploy Prisma migrations
-- Local seed data generation with full app-data wipe (guarded outside prod/staging unless explicit override envs are set), canonical orgs (`hbk-pickle`, `demo-org`), optional private owner users from `SEED_PRIVATE_USERS_JSON` (slotted into Thursday/Friday sessions when present), deterministic generated seeded users, `Review User` as a Thursday/Friday player-only seed in the active Demo Org league, Demo Org leagues (2 archived + 1 active, 8/10/12 weeks), and one userless active HBK demo league on the same session/occurrence schedule
+- Local seed data generation with full app-data wipe (guarded outside prod/staging unless explicit override envs are set), canonical orgs (`hbk-pickle`, `demo-org`), optional private owner users from `SEED_PRIVATE_USERS_JSON` (slotted into Thursday/Friday sessions when present), deterministic generated seeded users, `Demo User` as a Thursday/Friday player-only seed that replaces an active Demo Org slot with fallback across late-week sessions to preserve session capacity, and per-player transactional replacement writes that include slot assignment upsert plus `LeagueMembership(status=ACTIVE)` upsert, Demo Org leagues (2 archived + 1 active, 8/10/12 weeks), and one userless active HBK demo league on the same session/occurrence schedule
 
 ## Folder Structure
 
