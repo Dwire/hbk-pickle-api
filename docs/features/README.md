@@ -13,10 +13,11 @@
 - profile-stats.md: Profile stats aggregation for the profile page
 - rules.md: League rules content
 - notifications.md: Push notifications delivery
+- demo-org-autofill.md: Scheduler-driven registration/sub autofill for demo-org active leagues
 - seed-data.md: Local seed data generation
 - utc-time.md: UTC-only API contract and Eastern business-rule conversions
 - dev-debugging.md: Local backend debugging workflow with Node inspector
 - jobs-watch.md: Local single-terminal orchestration for workers + scheduler ticker
 - fly-deployment.md: Production deployment architecture and workflows on Fly.io
 - jwt-secret-hardening.md: Production JWT secret strength guardrails and generation workflow
-- scheduler: registrationScheduler.ts, runRegistrationTick.ts, registrationTick.ts, and registrationTicker.ts handle queued reminders
+- scheduler: registrationScheduler.ts, demoOrgAutofillService.ts, runRegistrationTick.ts, registrationTick.ts, and registrationTicker.ts handle reminders, demo autofill, and periodic orchestration

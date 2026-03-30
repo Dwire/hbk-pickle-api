@@ -59,6 +59,7 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - Register/sub mutations require `LeagueMembership.ACTIVE` and reject attempts for canceled occurrences
 - `sessionOccurrenceDetail` capability flags (`canRegister`, `canSub`) require `LeagueMembership.ACTIVE` to match mutation enforcement
 - Scheduler ticks enqueue Bull sub-selection jobs from registration close through occurrence end; sub-selection worker recomputes selection and sends push notifications only for selection state changes
+- Scheduler tick runs demo-org active-league autofill during open registration windows: query scope is bounded to next-day Eastern occurrences, zero-attendee occurrences auto-register assigned users to a randomized 50%-80% capacity target, and failures log diagnostic context while adding at most one sub per tick with an 8-sub (`ACTIVE` + `SELECTED`) cap
 - Scheduler tick also cleans up expired, unused profile-photo upload intents and attempts provider-side orphan deletion
 - Reminder scheduler queues registration-close/session-start notifications only at or after warning time, batches attendee/device lookups, dedupes once per `(userId, occurrenceId, kind)`, and retries enqueueing existing `PENDING` reminders that were never dispatched
 - Scheduler tick and sub-selection worker process `ACTIVE` occurrences only
@@ -102,6 +103,7 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - src/shared/logger.ts: Pino logger wrapper
 - src/scripts/seed.ts: Full-wipe seed script for canonical orgs, optional private owner seed users (`SEED_PRIVATE_USERS_JSON`), and Demo Org league/user generation
 - src/jobs/subSelectionWorker.ts: Bull worker for selection recalculation and sub selection notifications
+- src/jobs/schedulers/demoOrgAutofillService.ts: Demo-org scoped registration/sub autofill orchestration during open registration windows
 - src/jobs/schedulers/registrationTicker.ts: Long-running scheduler loop entrypoint for production background execution
 - src/jobs/schedulers/runRegistrationTick.ts: Shared single-tick scheduler orchestration
 - src/integrations/cloudflare/cloudflareImagesClient.ts: Cloudflare direct-upload/create/details/delete API wrapper
@@ -111,7 +113,7 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 
 ## Documentation
 
-- docs/features: One doc per feature module with responsibilities and data flow (see organizations-memberships.md for tenancy/auth model, profile-photos.md for Cloudflare upload flows, account-deletion.md for self-serve hard delete semantics, utc-time.md for UTC contract, dev-debugging.md for local debugger workflow, jobs-watch.md for local worker+ticker orchestration, and fly-deployment.md for production deployment/runbook guidance)
+- docs/features: One doc per feature module with responsibilities and data flow (see organizations-memberships.md for tenancy/auth model, profile-photos.md for Cloudflare upload flows, account-deletion.md for self-serve hard delete semantics, utc-time.md for UTC contract, dev-debugging.md for local debugger workflow, jobs-watch.md for local worker+ticker orchestration, demo-org-autofill.md for scheduler-time demo population behavior, and fly-deployment.md for production deployment/runbook guidance)
 
 ## API Contract Notes
 
@@ -197,7 +199,7 @@ Mutations (auth requires Twilio in production; stubbed locally).
 
 ### Local Jobs Monitoring
 
-- `just jobs-watch`: Starts notification worker, sub-selection worker, and reruns `scheduler-tick` every 30 seconds in a single terminal.
+- `just jobs-watch`: Starts notification worker, sub-selection worker, and reruns `scheduler-tick` every 30 seconds in a single terminal (`scheduler-tick` includes demo-org autofill).
 - `just jobs-watch 10`: Same flow but ticks every 10 seconds.
 - `jobs-watch` exits as soon as any worker/ticker child process exits, returns that child status, and stops the remaining child processes.
 - On Ctrl+C/TERM, `jobs-watch` performs a safe cleanup of child processes without unbound-variable failures.
