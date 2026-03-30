@@ -17,7 +17,7 @@ const demoOrganizationName = 'Demo Org'
 const demoOrganizationSlug = 'demo-org'
 const hbkDemoLeagueName = 'HBK Demo League'
 
-const seedLeagueNamePrefix = 'Seed League'
+const seedLeagueNamePrefix = 'Demo League'
 const seedLeagueTimeZone = 'America/New_York'
 const ownerMembershipRole = 'OWNER'
 const productionNodeEnvironment = 'production'
@@ -217,19 +217,19 @@ const sessionTimeConfigs: SessionTimeConfig[] = [
 
 const leagueSeedDefinitions: LeagueSeedDefinition[] = [
   {
-    name: `${seedLeagueNamePrefix} Past 1`,
+    name: `${seedLeagueNamePrefix} Fall 2025`,
     status: 'ARCHIVED',
     durationWeeks: firstPastLeagueDurationWeeks,
     startWeekOffset: firstPastLeagueStartOffsetWeeks
   },
   {
-    name: `${seedLeagueNamePrefix} Past 2`,
+    name: `${seedLeagueNamePrefix} Winter 2025`,
     status: 'ARCHIVED',
     durationWeeks: secondPastLeagueDurationWeeks,
     startWeekOffset: secondPastLeagueStartOffsetWeeks
   },
   {
-    name: `${seedLeagueNamePrefix} Current`,
+    name: `${seedLeagueNamePrefix} Spring 2026`,
     status: 'ACTIVE',
     durationWeeks: currentLeagueDurationWeeks,
     startWeekOffset: currentLeagueStartOffsetWeeks
