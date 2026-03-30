@@ -6,7 +6,7 @@ import { SubSignupService } from '../../features/subs/subSignupService.js'
 import type { SubSignupStatus } from '../../generated/prisma/client.js'
 import { logger } from '../../shared/logger.js'
 import { prisma } from '../../shared/prisma.js'
-import { getEasternDayRangeUtc } from '../../shared/time.js'
+import { easternZonedTimeToUtc, getEasternDateParts, getEasternDayRangeUtc, shiftDateByDays } from '../../shared/time.js'
 import { sessionCapacityDefault } from '../../shared/constants.js'
 
 const demoOrganizationSlug = 'demo-org'
@@ -29,6 +29,12 @@ const sortOrderAscending = 'asc'
 const logNoOpenOccurrencesForDemoOrgAutofill = 'No open demo-org occurrences eligible for autofill'
 const logProcessedDemoOrgOccurrenceAutofill = 'Processed demo-org occurrence autofill'
 const logCompletedDemoOrgAutofillTick = 'Completed demo-org autofill tick'
+const logDemoOrgAutofillRegistrationAttemptFailed = 'Demo org autofill registration attempt failed'
+const logDemoOrgAutofillSubSignupAttemptFailed = 'Demo org autofill sub signup attempt failed'
+const dayStartHour = 0
+const dayStartMinute = 0
+const dayStartSecond = 0
+const dayStartMillisecond = 0
 
 type ScopedOccurrence = {
   id: string
@@ -80,10 +86,14 @@ export class DemoOrgAutofillService {
    * Executes one demo-org autofill pass against registration-open occurrences.
    */
   public async runDemoOrgAutofillTick(now: Date): Promise<void> {
+    const scopedOccurrenceStartsAtRange = this.resolveScopedOccurrenceStartsAtRange(now)
     const scopedOccurrences = await prisma.sessionOccurrence.findMany({
       where: {
         status: occurrenceStatusActive,
-        startsAt: { gt: now },
+        startsAt: {
+          gte: scopedOccurrenceStartsAtRange.start,
+          lt: scopedOccurrenceStartsAtRange.endExclusive
+        },
         session: {
           status: sessionStatusActive,
           league: {
@@ -197,6 +207,31 @@ export class DemoOrgAutofillService {
     )
   }
 
+  private resolveScopedOccurrenceStartsAtRange(
+    now: Date
+  ): { start: Date; endExclusive: Date } {
+    const nowEasternDateParts = getEasternDateParts(now)
+    const nextEasternDateParts = shiftDateByDays(nowEasternDateParts, 1)
+    const dayAfterNextEasternDateParts = shiftDateByDays(nextEasternDateParts, 1)
+
+    return {
+      start: easternZonedTimeToUtc({
+        ...nextEasternDateParts,
+        hour: dayStartHour,
+        minute: dayStartMinute,
+        second: dayStartSecond,
+        millisecond: dayStartMillisecond
+      }),
+      endExclusive: easternZonedTimeToUtc({
+        ...dayAfterNextEasternDateParts,
+        hour: dayStartHour,
+        minute: dayStartMinute,
+        second: dayStartSecond,
+        millisecond: dayStartMillisecond
+      })
+    }
+  }
+
   private async autofillRegistrations(
     occurrence: ScopedOccurrence
   ): Promise<RegistrationAutofillOutcome> {
@@ -276,8 +311,16 @@ export class DemoOrgAutofillService {
       try {
         await this.registrationService.register(assignment.userId, occurrence.id)
         succeededCount += 1
-      } catch {
+      } catch (error) {
         failedCount += 1
+        logger.debug(
+          {
+            err: error,
+            occurrenceId: occurrence.id,
+            userId: assignment.userId
+          },
+          logDemoOrgAutofillRegistrationAttemptFailed
+        )
       }
     }
 
@@ -340,8 +383,16 @@ export class DemoOrgAutofillService {
       try {
         await this.subSignupService.signup(userId, occurrence.id)
         succeededCount += 1
-      } catch {
+      } catch (error) {
         failedCount += 1
+        logger.debug(
+          {
+            err: error,
+            occurrenceId: occurrence.id,
+            userId
+          },
+          logDemoOrgAutofillSubSignupAttemptFailed
+        )
       }
     }
 

@@ -59,7 +59,7 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - Register/sub mutations require `LeagueMembership.ACTIVE` and reject attempts for canceled occurrences
 - `sessionOccurrenceDetail` capability flags (`canRegister`, `canSub`) require `LeagueMembership.ACTIVE` to match mutation enforcement
 - Scheduler ticks enqueue Bull sub-selection jobs from registration close through occurrence end; sub-selection worker recomputes selection and sends push notifications only for selection state changes
-- Scheduler tick runs demo-org active-league autofill during open registration windows: zero-attendee occurrences auto-register assigned users to a randomized 50%-80% capacity target, then add at most one sub per tick with an 8-sub (`ACTIVE` + `SELECTED`) cap
+- Scheduler tick runs demo-org active-league autofill during open registration windows: query scope is bounded to next-day Eastern occurrences, zero-attendee occurrences auto-register assigned users to a randomized 50%-80% capacity target, and failures log diagnostic context while adding at most one sub per tick with an 8-sub (`ACTIVE` + `SELECTED`) cap
 - Scheduler tick also cleans up expired, unused profile-photo upload intents and attempts provider-side orphan deletion
 - Reminder scheduler queues registration-close/session-start notifications only at or after warning time, batches attendee/device lookups, dedupes once per `(userId, occurrenceId, kind)`, and retries enqueueing existing `PENDING` reminders that were never dispatched
 - Scheduler tick and sub-selection worker process `ACTIVE` occurrences only
