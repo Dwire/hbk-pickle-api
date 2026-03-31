@@ -185,10 +185,14 @@ jobs-watch tick_seconds="30":
 	printf '[jobs-watch] Exiting after %s stopped (status=%s)\n' "${exited_process}" "${exit_code}"
 	exit "${exit_code}"
 
-# Run Prisma migrations in dev mode.
+# Legacy alias for schema sync in development.
+# This project does not support `prisma migrate dev` because shadow DB migration replay
+# fails without a full baseline migration history.
+# Parameters: none.
 
 migrate-dev:
-	pnpm prisma migrate dev
+	@printf 'prisma migrate dev is not supported in this repo; running prisma db push instead.\n'
+	just db-push
 
 # Push Prisma schema to the database (no migrations).
 # Parameters: none.

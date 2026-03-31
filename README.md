@@ -130,6 +130,7 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - Ensure Postgres and Redis are running.
 - Create the local database.
 - Sync schema without migrations (no shadow DB permissions).
+- `just migrate-dev` is a legacy alias that now runs `just db-push` because `prisma migrate dev` is not supported in this repo.
 - If your DB user cannot create shadow DBs, apply SQL migrations with `just db-apply-org-membership-migration`, `just db-convert-ids-to-uuid`, `just db-apply-reminder-once-migration`, and `just db-apply-occurrence-attendance-confirmation-migration`, then run `just db-push`.
 - Start the API.
 

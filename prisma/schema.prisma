@@ -89,7 +89,7 @@ model User {
   registrations           SessionRegistration[]
   subSignups              SubSignup[]
   attendanceConfirmations OccurrenceAttendanceConfirmation[]
-  attendanceConfirmationsSet OccurrenceAttendanceConfirmation[] @relation("AttendanceConfirmedBy")
+  attendanceConfirmationsConfirmedBy OccurrenceAttendanceConfirmation[] @relation("AttendanceConfirmedBy")
   devices                 UserDevice[]
   notifications           Notification[]
   organizationMemberships OrganizationMembership[]
