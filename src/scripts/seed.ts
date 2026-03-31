@@ -44,7 +44,7 @@ const secondSessionStartHour = 20
 const thirdSessionStartHour = 22
 const sessionStartMinute = 0
 const daysInWeek = 7
-const lateWeekSeedWeekdays: Weekday[] = ['THURSDAY', 'FRIDAY']
+const lateWeekSeedWeekdays: Weekday[] = ['THURSDAY', 'FRIDAY', 'SATURDAY']
 const randomRegistrationMin = 1
 const randomRegistrationMax = 5
 const randomSubSignupMin = 3
@@ -104,7 +104,27 @@ const seedFirstNames = [
   'Sage',
   'Payton',
   'Drew',
-  'Harper'
+  'Harper',
+  'Alexis',
+  'Bailey',
+  'Brooklyn',
+  'Dakota',
+  'Emerson',
+  'Frankie',
+  'Greer',
+  'Hollis',
+  'Jamie',
+  'Kai',
+  'Lane',
+  'Marley',
+  'Noel',
+  'Oakley',
+  'Phoenix',
+  'Remy',
+  'Sawyer',
+  'Tatum',
+  'Wren',
+  'Zion'
 ] as const
 
 const seedLastNames = [
@@ -127,13 +147,33 @@ const seedLastNames = [
   'Quigley',
   'Ramsey',
   'Sullivan',
-  'Turner'
+  'Turner',
+  'Underwood',
+  'Vaughn',
+  'Walker',
+  'Xu',
+  'Young',
+  'Zimmerman',
+  'Anderson',
+  'Brooks',
+  'Campbell',
+  'Diaz',
+  'Edwards',
+  'Flores',
+  'Griffin',
+  'Hayes',
+  'Ingram',
+  'Kelly',
+  'Lopez',
+  'Mitchell',
+  'Navarro',
+  'Ortiz'
 ] as const
 
 const registrationStatusAttending: RegistrationStatus = 'ATTENDING'
 const subSignupStatusActive: SubSignupStatus = 'ACTIVE'
 
-const seedWeekdays: Weekday[] = ['MONDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY']
+const seedWeekdays: Weekday[] = ['MONDAY', 'WEDNESDAY', 'THURSDAY', 'FRIDAY', 'SATURDAY']
 
 type SessionTimeConfig = {
   label: string
@@ -682,7 +722,7 @@ const ensureActiveLeaguePlayers = async (
   })
 
   if (lateWeekSessions.length === 0) {
-    throw new Error('Expected Thursday/Friday sessions in active demo league for active league player assignment')
+    throw new Error('Expected Thursday/Friday/Saturday sessions in active demo league for active league player assignment')
   }
 
   const activeLeagueAssignments = await prisma.slotAssignment.findMany({
@@ -854,7 +894,7 @@ const buildLeagueAssignments = (
 
   if (preferredLateWeekUsers.length > lateSessionCapacity) {
     throw new Error(
-      `Preferred late-week user count (${String(preferredLateWeekUsers.length)}) exceeds Thursday/Friday capacity (${String(lateSessionCapacity)})`
+      `Preferred late-week user count (${String(preferredLateWeekUsers.length)}) exceeds Thursday/Friday/Saturday capacity (${String(lateSessionCapacity)})`
     )
   }
 

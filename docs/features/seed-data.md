@@ -15,7 +15,7 @@
 - Seed creates Demo Org leagues (two archived + one active) with fixed durations of 8, 10, and 12 weeks using UTC instants derived from Eastern rules.
 - Seed also creates one active HBK demo league with the same weekly session templates and occurrence schedule as the active Demo Org league, but without users.
 - League rules, sessions, occurrences, slot assignments, and league memberships are re-created for Demo Org on each run.
-- Session templates include exactly three sessions per configured weekday.
+- Session templates include exactly three sessions per configured weekday (Monday, Wednesday, Thursday, Friday, Saturday), for 15 sessions per league.
 
 ## Key Files
 
@@ -27,10 +27,10 @@
 - Seed wipes all app tables before any create/upsert actions.
 - Seed upserts optional private owner users from `SEED_PRIVATE_USERS_JSON`.
 - Seed assigns ownership from each owner user’s `ownerOrganizationSlugs`.
-- Seeded owner users are deterministically assigned to Thursday/Friday session slots in seeded Demo Org leagues.
+- Seeded owner users are deterministically assigned to Thursday/Friday/Saturday session slots in seeded Demo Org leagues.
 - Seed generates deterministic real-name seeded users in the allowed phone range and marks them `isOnApp = true`.
 - Slot assignments are created per session and mirrored into `LeagueMembership(status=ACTIVE)`.
 - Owner users are included in the Demo Org assignment pools across all seeded Demo leagues.
-- `Demo User` (`+15555556789`) is seeded as a player by replacing one non-owner Thursday/Friday slot assignment in the active Demo Org league and adding `LeagueMembership(status=ACTIVE)`, with no `OrganizationMembership` owner/admin role.
+- `Demo User` (`+15555556789`) is seeded as a player by replacing one non-owner Thursday/Friday/Saturday slot assignment in the active Demo Org league and adding `LeagueMembership(status=ACTIVE)`, with no `OrganizationMembership` owner/admin role.
 - If an active-league player seed user has no existing league assignment, seed removes one replaceable late-week assignment (preferring the target session, then other late-week sessions), upserts the seeded user slot assignment, and upserts `LeagueMembership(status=ACTIVE)` in one per-player transaction.
 - HBK demo league is scaffolded with rules, sessions, and occurrences only (no assignments, league memberships, registrations, or sub signups).
