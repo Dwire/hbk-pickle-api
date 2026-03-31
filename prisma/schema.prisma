@@ -88,6 +88,8 @@ model User {
   slotAssignments         SlotAssignment[]
   registrations           SessionRegistration[]
   subSignups              SubSignup[]
+  attendanceConfirmations OccurrenceAttendanceConfirmation[]
+  attendanceConfirmationsSet OccurrenceAttendanceConfirmation[] @relation("AttendanceConfirmedBy")
   devices                 UserDevice[]
   notifications           Notification[]
   organizationMemberships OrganizationMembership[]
@@ -218,6 +220,7 @@ model SessionOccurrence {
   session    Session  @relation(fields: [sessionId], references: [id])
   registrations SessionRegistration[]
   subSignups  SubSignup[]
+  attendanceConfirmations OccurrenceAttendanceConfirmation[]
   notifications Notification[]
 
   @@unique([sessionId, startsAt])
@@ -269,6 +272,23 @@ model SubSignup {
   @@unique([userId, occurrenceId])
   @@index([occurrenceId, status, signedUpAt])
   @@index([userId, status])
+}
+
+model OccurrenceAttendanceConfirmation {
+  id                String            @id @default(uuid()) @db.Uuid
+  occurrenceId      String            @db.Uuid
+  userId            String            @db.Uuid
+  confirmedByUserId String?           @db.Uuid
+  confirmedAt       DateTime
+  createdAt         DateTime          @default(now())
+  updatedAt         DateTime          @updatedAt
+  occurrence        SessionOccurrence @relation(fields: [occurrenceId], references: [id], onDelete: Cascade)
+  user              User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  confirmedByUser   User?             @relation("AttendanceConfirmedBy", fields: [confirmedByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([occurrenceId, userId])
+  @@index([occurrenceId])
+  @@index([confirmedByUserId])
 }
 
 model Notification {

@@ -15,6 +15,7 @@
 - `adminCreatePlayer` / `adminUpdatePlayer`
 - `adminSetLeagueMembership`
 - `adminSetRegistration` / `adminSetSubSignup`
+- `adminSetAttendanceConfirmation` / `adminSetAttendanceConfirmations`
 - `adminUpsertLeagueRule` / `adminCopyLeagueRulesFromTemplate`
 
 ## Key Files
@@ -41,4 +42,7 @@
   - `OWNER`: rejected for assignment, and existing owners cannot be changed via this mutation
 - `adminSetLeagueMembership` toggles `LeagueMembership.status` (`ACTIVE`/`REMOVED`) for manual eligibility control.
 - `adminSetRegistration` and `adminSetSubSignup` require `LeagueMembership.status = ACTIVE` for the occurrence's league.
-- League delete hard-cascades dependent sessions, occurrences, assignments, memberships, registrations, sub signups, notifications, and rules.
+- `adminOccurrenceRoster` includes `attendanceConfirmations`, `confirmedCount`, and `unconfirmedCount` derived from canonical `(occurrenceId, userId)` attendance confirmation rows.
+- `adminSetAttendanceConfirmation` and `adminSetAttendanceConfirmations` require target users to already be in that occurrence's roster (registration or sub signup row, any status).
+- Attendance confirmation is independent from registration/sub statuses; unconfirmed is represented by missing confirmation row.
+- League delete hard-cascades dependent sessions, occurrences, assignments, memberships, registrations, sub signups, attendance confirmations, notifications, and rules.

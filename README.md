@@ -42,6 +42,8 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - `adminUpdatePlayer` supports org-scoped role updates (`PLAYER`/`ADMIN`) with owner-protection constraints
 - Admin player create/update no longer accept `isOnApp`; onboarding completion owns that flag
 - Admin direct status control mutations for registrations and sub signups, gated by `LeagueMembership.ACTIVE`
+- Admin attendance confirmation mutations (`adminSetAttendanceConfirmation`, `adminSetAttendanceConfirmations`) for occurrence roster users (attendees + subs, any status)
+- `adminOccurrenceRoster` includes canonical attendance confirmation state (`attendanceConfirmations`, `confirmedCount`, `unconfirmedCount`) independent from registration/sub status
 - Admin league rules mutations for league-scoped upsert and template-copy workflows
 - Phone-based slot assignment that creates placeholder users (`isOnApp = false`) until onboarding completion and auto-activates league membership
 - League lifecycle via `LeagueStatus` (`DRAFT`, `UPCOMING`, `ACTIVE`, `ARCHIVED`) with one `ACTIVE` league enforced per organization
@@ -51,7 +53,7 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - Admin occurrence create/update validates that `startsAt`/`endsAt` remain within the parent league `startDate`/`endDate` bounds
 - Admin occurrence delete auto-cancels when participation history exists; otherwise hard-deletes
 - Admin session delete archives when participation history exists; otherwise hard-deletes
-- Admin league delete hard-cascades related sessions/occurrences/assignments/memberships/registrations/sub signups/notifications/rules
+- Admin league delete hard-cascades related sessions/occurrences/assignments/memberships/registrations/sub signups/attendance confirmations/notifications/rules
 - Profile stats query for current-league participation, sub signup counts, and attendance/missed summaries
 - Profile stats exclude registration/subsignup rows tied to canceled occurrences
 - Session display state (PAST/LIVE/UPCOMING) derived server-side using Eastern wall-clock projections of UTC instants; live window opens 10am ET day before
@@ -96,7 +98,7 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - src/app/server.ts: App entry
 - src/app/graphql/schema.ts: GraphQL schema
 - src/app/auth.ts: Auth + org/league access guards
-- src/features/admin/adminManagementService.ts: Admin CRUD orchestration and delete semantics
+- src/features/admin/adminManagementService.ts: Admin CRUD orchestration, delete semantics, and occurrence attendance confirmation reads/writes
 - src/features/profilePhoto/profilePhotoService.ts: Profile photo upload intent, completion, replacement/delete, and stale-intent cleanup orchestration
 - src/shared/config.ts: Typed environment config
 - src/shared/phone.ts: E.164 phone normalization utility
@@ -113,13 +115,14 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 
 ## Documentation
 
-- docs/features: One doc per feature module with responsibilities and data flow (see organizations-memberships.md for tenancy/auth model, profile-photos.md for Cloudflare upload flows, account-deletion.md for self-serve hard delete semantics, utc-time.md for UTC contract, dev-debugging.md for local debugger workflow, jobs-watch.md for local worker+ticker orchestration, demo-org-autofill.md for scheduler-time demo population behavior, and fly-deployment.md for production deployment/runbook guidance)
+- docs/features: One doc per feature module with responsibilities and data flow (see organizations-memberships.md for tenancy/auth model, attendance-confirmation.md for admin in-person check-in confirmation flow, profile-photos.md for Cloudflare upload flows, account-deletion.md for self-serve hard delete semantics, utc-time.md for UTC contract, dev-debugging.md for local debugger workflow, jobs-watch.md for local worker+ticker orchestration, demo-org-autofill.md for scheduler-time demo population behavior, and fly-deployment.md for production deployment/runbook guidance)
 
 ## API Contract Notes
 
 - 2026-03-24 (breaking): `league`, `rules`, and `sessionsWeek` now require `organizationId`. Optional `leagueId` remains supported, but when provided it must belong to the specified organization. New signatures: `league(organizationId: ID!, leagueId: ID)`, `rules(organizationId: ID!, leagueId: ID)`, `sessionsWeek(organizationId: ID!, leagueId: ID)`.
 - 2026-03-25: Added `playerOrganizations: [Organization!]!` for player eligibility, derived from ACTIVE league memberships on ACTIVE, UPCOMING, or ARCHIVED leagues. Existing `organizations` semantics are unchanged and remain organization-membership based.
 - 2026-03-26 (breaking): `verifyPhoneCode` now returns `eligibleOrganizations` on `AuthPayload`; added `completeOnboarding: User!`; removed `isOnApp` from `AdminCreatePlayerInput` and `AdminUpdatePlayerInput`. OTP verification no longer sets `isOnApp`.
+- 2026-03-31: Added admin attendance confirmation APIs on occurrence rosters: `AdminOccurrenceRoster.attendanceConfirmations`, `confirmedCount`, `unconfirmedCount`, plus mutations `adminSetAttendanceConfirmation` and `adminSetAttendanceConfirmations`.
 
 ## Local Development (Postman)
 
@@ -127,7 +130,7 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - Ensure Postgres and Redis are running.
 - Create the local database.
 - Sync schema without migrations (no shadow DB permissions).
-- If your DB user cannot create shadow DBs, apply SQL migrations with `just db-apply-org-membership-migration`, `just db-convert-ids-to-uuid`, and `just db-apply-reminder-once-migration`, then run `just db-push`.
+- If your DB user cannot create shadow DBs, apply SQL migrations with `just db-apply-org-membership-migration`, `just db-convert-ids-to-uuid`, `just db-apply-reminder-once-migration`, and `just db-apply-occurrence-attendance-confirmation-migration`, then run `just db-push`.
 - Start the API.
 
 ### Local Debugging

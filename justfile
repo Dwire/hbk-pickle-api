@@ -226,6 +226,12 @@ db-convert-ids-to-uuid:
 db-apply-reminder-once-migration:
 	just db-execute prisma/migrations/202603160002_notification_reminder_once/migration.sql
 
+# Add occurrence attendance confirmation table for admin in-person check-in tracking.
+# Parameters: none.
+
+db-apply-occurrence-attendance-confirmation-migration:
+	just db-execute prisma/migrations/202603310001_occurrence_attendance_confirmation/migration.sql
+
 # Generate Prisma client.
 
 prisma-generate:
