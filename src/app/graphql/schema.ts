@@ -7,6 +7,7 @@ import { AdminManagementService } from '../../features/admin/adminManagementServ
 import type {
   AdminLeagueDetailInput,
   AdminLeagueDetailSession,
+  AdminSetAttendanceConfirmationInput,
   AdminUserRole
 } from '../../features/admin/adminManagementService.js'
 import { AuthService } from '../../features/auth/authService.js'
@@ -471,8 +472,18 @@ const typeDefs = `#graphql
     startsAt: DateTime!
     endsAt: DateTime!
     openSpots: Int!
+    confirmedCount: Int!
+    unconfirmedCount: Int!
+    attendanceConfirmations: [AdminAttendanceConfirmation!]!
     attendees: [SessionRosterEntry!]!
     subs: [SessionRosterEntry!]!
+  }
+
+  type AdminAttendanceConfirmation {
+    userId: ID!
+    isConfirmed: Boolean!
+    confirmedAt: DateTime
+    confirmedByUserId: ID
   }
 
   enum AdminDeleteAction {
@@ -565,6 +576,11 @@ const typeDefs = `#graphql
     status: LeagueMembershipStatus!
   }
 
+  input AdminSetAttendanceConfirmationInput {
+    userId: ID!
+    isConfirmed: Boolean!
+  }
+
   input AdminPaginationInput {
     limit: Int
     offset: Int
@@ -636,6 +652,8 @@ const typeDefs = `#graphql
     adminCopyLeagueRulesFromTemplate(sourceLeagueId: ID!, targetLeagueId: ID!, replaceExisting: Boolean!): [LeagueRule!]!
     adminSetRegistration(occurrenceId: ID!, userId: ID!, status: RegistrationStatus!): SessionRegistration!
     adminSetSubSignup(occurrenceId: ID!, userId: ID!, status: SubSignupStatus!): SubSignup!
+    adminSetAttendanceConfirmation(occurrenceId: ID!, userId: ID!, isConfirmed: Boolean!): AdminAttendanceConfirmation!
+    adminSetAttendanceConfirmations(occurrenceId: ID!, inputs: [AdminSetAttendanceConfirmationInput!]!): [AdminAttendanceConfirmation!]!
   }
 `
 
@@ -1427,6 +1445,46 @@ const resolvers = {
         args.occurrenceId,
         args.userId,
         args.status
+      )
+    },
+    adminSetAttendanceConfirmation: async (
+      _: unknown,
+      args: {
+        occurrenceId: string
+        userId: string
+        isConfirmed: boolean
+      },
+      context: AppContext
+    ) => {
+      const actorUserId = await requireOccurrenceAdminOrOwner(
+        context,
+        args.occurrenceId
+      )
+      const adminService = new AdminManagementService()
+      return adminService.adminSetAttendanceConfirmation(
+        args.occurrenceId,
+        args.userId,
+        args.isConfirmed,
+        actorUserId
+      )
+    },
+    adminSetAttendanceConfirmations: async (
+      _: unknown,
+      args: {
+        occurrenceId: string
+        inputs: AdminSetAttendanceConfirmationInput[]
+      },
+      context: AppContext
+    ) => {
+      const actorUserId = await requireOccurrenceAdminOrOwner(
+        context,
+        args.occurrenceId
+      )
+      const adminService = new AdminManagementService()
+      return adminService.adminSetAttendanceConfirmations(
+        args.occurrenceId,
+        args.inputs,
+        actorUserId
       )
     }
   }

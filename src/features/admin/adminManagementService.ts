@@ -64,6 +64,7 @@ const errorAdminLeagueDetailOccurrenceRangeInvalid =
   'occurrenceStart must be before or equal to occurrenceEnd'
 const errorActiveLeagueMembershipRequired = 'User not active in this league'
 const errorPlayerNotInOrganization = 'Player not in organization'
+const errorPlayerNotInOccurrenceRoster = 'Player not in occurrence roster'
 const errorOwnerRoleChangeNotAllowed =
   'Cannot change role for an organization owner with this mutation'
 const errorOwnerRoleAssignmentNotAllowed =
@@ -186,6 +187,18 @@ export type AdminSetLeagueMembershipInput = {
   status: LeagueMembershipStatus
 }
 
+export type AdminSetAttendanceConfirmationInput = {
+  userId: string
+  isConfirmed: boolean
+}
+
+export type AdminAttendanceConfirmation = {
+  userId: string
+  isConfirmed: boolean
+  confirmedAt: Date | null
+  confirmedByUserId: string | null
+}
+
 export type AdminOccurrenceRosterEntry = {
   user: {
     id: string
@@ -206,6 +219,9 @@ export type AdminOccurrenceRoster = {
   startsAt: Date
   endsAt: Date
   openSpots: number
+  confirmedCount: number
+  unconfirmedCount: number
+  attendanceConfirmations: AdminAttendanceConfirmation[]
   attendees: AdminOccurrenceRosterEntry[]
   subs: AdminOccurrenceRosterEntry[]
 }
@@ -303,6 +319,7 @@ const getErrorMessage = (error: unknown): string => {
  * - Encapsulates admin-only CRUD for leagues, session templates, occurrences, and slot assignments.
  * - Enforces league/session lifecycle constraints and delete semantics.
  * - Handles phone-based slot assignment with placeholder user creation.
+ * - Provides admin attendance confirmation writes/reads for occurrence rosters.
  */
 export class AdminManagementService {
   private resolvePagination(input: PaginationInput | null | undefined): {
@@ -473,6 +490,36 @@ export class AdminManagementService {
       WHERE "occurrenceRank" <= ${input.maxOccurrencesPerSession}
       ORDER BY "sessionId" ASC, "startsAt" ASC
     `)
+  }
+
+  private normalizeAttendanceConfirmationInputs(
+    inputs: AdminSetAttendanceConfirmationInput[]
+  ): AdminSetAttendanceConfirmationInput[] {
+    const dedupedByUserId = new Map<string, boolean>()
+    for (let index = inputs.length - 1; index >= 0; index -= 1) {
+      const input = inputs[index]
+      if (!dedupedByUserId.has(input.userId)) {
+        dedupedByUserId.set(input.userId, input.isConfirmed)
+      }
+    }
+
+    return Array.from(dedupedByUserId.entries())
+      .reverse()
+      .map(([userId, isConfirmed]) => ({ userId, isConfirmed }))
+  }
+
+  private resolveOccurrenceRosterUserIds(
+    registrationUserIds: string[],
+    subSignupUserIds: string[]
+  ): string[] {
+    const rosterUserIds = new Set<string>()
+    registrationUserIds.forEach((userId) => {
+      rosterUserIds.add(userId)
+    })
+    subSignupUserIds.forEach((userId) => {
+      rosterUserIds.add(userId)
+    })
+    return Array.from(rosterUserIds)
   }
 
   private validateDateRange(
@@ -1010,6 +1057,9 @@ export class AdminManagementService {
         subSignups: {
           include: { user: true },
           orderBy: { signedUpAt: sortOrderAscending }
+        },
+        attendanceConfirmations: {
+          orderBy: { createdAt: sortOrderAscending }
         }
       }
     })
@@ -1050,6 +1100,40 @@ export class AdminManagementService {
       (occurrence.session.capacity ?? sessionCapacityDefault) - attendeeCount,
       0
     )
+    const rosterUserIds = this.resolveOccurrenceRosterUserIds(
+      occurrence.registrations.map((registration) => registration.userId),
+      occurrence.subSignups.map((subSignup) => subSignup.userId)
+    )
+    const rosterUserIdSet = new Set<string>(rosterUserIds)
+    const confirmationByUserId = new Map(
+      occurrence.attendanceConfirmations
+        .filter((confirmation) => rosterUserIdSet.has(confirmation.userId))
+        .map((confirmation) => [confirmation.userId, confirmation])
+    )
+    const attendanceConfirmations: AdminAttendanceConfirmation[] = rosterUserIds.map(
+      (userId) => {
+        const confirmation = confirmationByUserId.get(userId)
+        if (!confirmation) {
+          return {
+            userId,
+            isConfirmed: false,
+            confirmedAt: null,
+            confirmedByUserId: null
+          }
+        }
+
+        return {
+          userId: confirmation.userId,
+          isConfirmed: true,
+          confirmedAt: confirmation.confirmedAt,
+          confirmedByUserId: confirmation.confirmedByUserId
+        }
+      }
+    )
+    const confirmedCount = attendanceConfirmations.filter(
+      (confirmation) => confirmation.isConfirmed
+    ).length
+    const unconfirmedCount = Math.max(rosterUserIds.length - confirmedCount, 0)
 
     return {
       occurrenceId: occurrence.id,
@@ -1058,6 +1142,9 @@ export class AdminManagementService {
       startsAt: occurrence.startsAt,
       endsAt: occurrence.endsAt,
       openSpots,
+      confirmedCount,
+      unconfirmedCount,
+      attendanceConfirmations,
       attendees,
       subs
     }
@@ -2047,6 +2134,122 @@ export class AdminManagementService {
         where: { leagueId: targetLeagueId },
         orderBy: { order: sortOrderAscending }
       })
+    })
+  }
+
+  public async adminSetAttendanceConfirmation(
+    occurrenceId: string,
+    userId: string,
+    isConfirmed: boolean,
+    actorUserId: string
+  ): Promise<AdminAttendanceConfirmation> {
+    const confirmations = await this.adminSetAttendanceConfirmations(
+      occurrenceId,
+      [{ userId, isConfirmed }],
+      actorUserId
+    )
+
+    const [confirmation] = confirmations
+    if (!confirmation) {
+      throw new Error(errorPlayerNotInOccurrenceRoster)
+    }
+
+    return confirmation
+  }
+
+  public async adminSetAttendanceConfirmations(
+    occurrenceId: string,
+    inputs: AdminSetAttendanceConfirmationInput[],
+    actorUserId: string
+  ): Promise<AdminAttendanceConfirmation[]> {
+    const normalizedInputs = this.normalizeAttendanceConfirmationInputs(inputs)
+    if (normalizedInputs.length === 0) {
+      return []
+    }
+
+    return prisma.$transaction(async (tx) => {
+      const occurrence = await tx.sessionOccurrence.findUnique({
+        where: { id: occurrenceId },
+        select: { id: true }
+      })
+      if (!occurrence) {
+        throw new Error(errorOccurrenceMissing)
+      }
+
+      const [registrations, subSignups] = await Promise.all([
+        tx.sessionRegistration.findMany({
+          where: { occurrenceId },
+          select: { userId: true }
+        }),
+        tx.subSignup.findMany({
+          where: { occurrenceId },
+          select: { userId: true }
+        })
+      ])
+
+      const rosterUserIds = this.resolveOccurrenceRosterUserIds(
+        registrations.map((registration) => registration.userId),
+        subSignups.map((subSignup) => subSignup.userId)
+      )
+      const rosterUserIdSet = new Set<string>(rosterUserIds)
+      for (const input of normalizedInputs) {
+        if (!rosterUserIdSet.has(input.userId)) {
+          throw new Error(errorPlayerNotInOccurrenceRoster)
+        }
+      }
+
+      const now = new Date()
+      const confirmations: AdminAttendanceConfirmation[] = []
+      for (const input of normalizedInputs) {
+        if (!input.isConfirmed) {
+          await tx.occurrenceAttendanceConfirmation.deleteMany({
+            where: {
+              occurrenceId,
+              userId: input.userId
+            }
+          })
+          confirmations.push({
+            userId: input.userId,
+            isConfirmed: false,
+            confirmedAt: null,
+            confirmedByUserId: null
+          })
+          continue
+        }
+
+        const confirmation = await tx.occurrenceAttendanceConfirmation.upsert({
+          where: {
+            occurrenceId_userId: {
+              occurrenceId,
+              userId: input.userId
+            }
+          },
+          create: {
+            occurrenceId,
+            userId: input.userId,
+            confirmedAt: now,
+            confirmedByUserId: actorUserId
+          },
+          update: {
+            confirmedAt: now,
+            confirmedByUserId: actorUserId
+          },
+          select: {
+            userId: true,
+            confirmedAt: true,
+            confirmedByUserId: true
+          }
+        })
+
+        confirmations.push({
+          userId: confirmation.userId,
+          isConfirmed: true,
+          confirmedAt: confirmation.confirmedAt,
+          confirmedByUserId: confirmation.confirmedByUserId
+        })
+      }
+
+      return confirmations
     })
   }
 

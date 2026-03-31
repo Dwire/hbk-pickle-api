@@ -8,6 +8,7 @@
 - account-deletion.md: Authenticated hard account deletion with owner/admin safeguards
 - sessions.md: Session listing and admin session creation
 - admin-management.md: Admin read/write APIs for leagues/sessions/occurrences/slot assignments/players/rosters including nested league detail loading
+- attendance-confirmation.md: Admin-managed in-person attendance confirmation per occurrence/user
 - registrations.md: Attendance registration
 - sub-signups.md: Sub signup logic
 - profile-stats.md: Profile stats aggregation for the profile page
