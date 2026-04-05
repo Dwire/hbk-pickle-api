@@ -4,6 +4,7 @@ import { Kind } from 'graphql'
 import type { GraphQLScalarType, ValueNode } from 'graphql'
 
 import { AdminManagementService } from '../../features/admin/adminManagementService.js'
+import { registerDeviceResolver } from './registerDeviceResolver.js'
 import type {
   AdminLeagueDetailInput,
   AdminLeagueDetailSession,
@@ -152,7 +153,9 @@ const resolveMemberLeagueAccess = async (
 
 const isUserRole = (value: unknown): value is UserRole => {
   return (
-    value === userRolePlayer || value === userRoleAdmin || value === userRoleOwner
+    value === userRolePlayer ||
+    value === userRoleAdmin ||
+    value === userRoleOwner
   )
 }
 
@@ -176,18 +179,28 @@ const resolveUserRole = async (
 
   const contextOrganizationId = user[roleContextOrganizationIdField]
   if (contextOrganizationId) {
-    return resolveUserRoleForOrganization(context, user.id, contextOrganizationId)
+    return resolveUserRoleForOrganization(
+      context,
+      user.id,
+      contextOrganizationId
+    )
   }
 
   const contextLeagueId = user[roleContextLeagueIdField]
   if (contextLeagueId) {
-    const organizationId = await resolveLeagueOrganizationId(context, contextLeagueId)
+    const organizationId = await resolveLeagueOrganizationId(
+      context,
+      contextLeagueId
+    )
     return resolveUserRoleForOrganization(context, user.id, organizationId)
   }
 
   if (context.request.userId && context.request.userId === user.id) {
     try {
-      const effectiveLeagueAccess = await resolveEffectiveLeagueAccess(context, null)
+      const effectiveLeagueAccess = await resolveEffectiveLeagueAccess(
+        context,
+        null
+      )
       return resolveUserRoleForOrganization(
         context,
         user.id,
@@ -673,11 +686,7 @@ const resolvers = {
       session.subUsers ?? []
   },
   AdminLeague: {
-    rules: async (
-      league: { id: string },
-      _: unknown,
-      context: AppContext
-    ) => {
+    rules: async (league: { id: string }, _: unknown, context: AppContext) => {
       await requireLeagueAdminOrOwner(context, league.id)
       const adminService = new AdminManagementService()
       return adminService.adminLeagueRules(league.id)
@@ -801,7 +810,11 @@ const resolvers = {
       const userService = new UserService()
       return userService.listOrganizations(userId)
     },
-    playerOrganizations: async (_: unknown, __: unknown, context: AppContext) => {
+    playerOrganizations: async (
+      _: unknown,
+      __: unknown,
+      context: AppContext
+    ) => {
       const userId = requireAuth(context)
       const userService = new UserService()
       return userService.listPlayerOrganizations(userId)
@@ -984,19 +997,7 @@ const resolvers = {
         eligibleOrganizations
       }
     },
-    registerDevice: async (
-      _: unknown,
-      args: { token: string; platform: string },
-      context: AppContext
-    ) => {
-      const userId = requireAuth(context)
-      await context.prisma.userDevice.upsert({
-        where: { token: args.token },
-        create: { token: args.token, platform: args.platform, userId },
-        update: { platform: args.platform, userId }
-      })
-      return true
-    },
+    registerDevice: registerDeviceResolver,
     updateDisplayName: async (
       _: unknown,
       args: { displayName: string },
@@ -1006,7 +1007,11 @@ const resolvers = {
       const service = new UserService()
       return service.upsertDisplayName(userId, args.displayName)
     },
-    completeOnboarding: async (_: unknown, __: unknown, context: AppContext) => {
+    completeOnboarding: async (
+      _: unknown,
+      __: unknown,
+      context: AppContext
+    ) => {
       const userId = requireAuth(context)
       const service = new UserService()
       return service.completeOnboarding(userId)
@@ -1043,11 +1048,7 @@ const resolvers = {
       const profilePhotoService = new ProfilePhotoService()
       return profilePhotoService.deleteMyProfilePhoto(userId)
     },
-    deleteMyAccount: async (
-      _: unknown,
-      __: unknown,
-      context: AppContext
-    ) => {
+    deleteMyAccount: async (_: unknown, __: unknown, context: AppContext) => {
       const userId = requireAuth(context)
       const service = new UserService()
       await service.deleteMyAccount(userId)
@@ -1209,8 +1210,14 @@ const resolvers = {
       },
       context: AppContext
     ) => {
-      const sessionIds = Array.from(new Set(args.inputs.map((input) => input.sessionId)))
-      await Promise.all(sessionIds.map((sessionId) => requireSessionAdminOrOwner(context, sessionId)))
+      const sessionIds = Array.from(
+        new Set(args.inputs.map((input) => input.sessionId))
+      )
+      await Promise.all(
+        sessionIds.map((sessionId) =>
+          requireSessionAdminOrOwner(context, sessionId)
+        )
+      )
       const adminService = new AdminManagementService()
       return adminService.createSessionOccurrences(args.inputs)
     },
@@ -1265,8 +1272,14 @@ const resolvers = {
       },
       context: AppContext
     ) => {
-      const leagueIds = Array.from(new Set(args.inputs.map((input) => input.leagueId)))
-      await Promise.all(leagueIds.map((leagueId) => requireLeagueAdminOrOwner(context, leagueId)))
+      const leagueIds = Array.from(
+        new Set(args.inputs.map((input) => input.leagueId))
+      )
+      await Promise.all(
+        leagueIds.map((leagueId) =>
+          requireLeagueAdminOrOwner(context, leagueId)
+        )
+      )
       const adminService = new AdminManagementService()
       return adminService.createSlotAssignments(args.inputs)
     },
