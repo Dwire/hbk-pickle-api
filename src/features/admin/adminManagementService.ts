@@ -2386,12 +2386,17 @@ export class AdminManagementService {
         ? {
             signedUpAt: new Date(),
             selectionRank: null,
-            selectedAt: null
+            selectedAt: null,
+            selectionType: null,
+            assignedStartOffsetMinutes: null,
+            assignedEndOffsetMinutes: null,
+            partialLocked: false,
+            partialLockedAt: null
           }
         : status === subSignupStatusSelected
           ? {
-              selectedAt: existingSubSignup.selectedAt ?? new Date()
-            }
+            selectedAt: existingSubSignup.selectedAt ?? new Date()
+          }
           : {}
 
     return prisma.subSignup.update({

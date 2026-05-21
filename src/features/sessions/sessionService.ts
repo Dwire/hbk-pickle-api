@@ -1,4 +1,14 @@
-import type { NotificationKind, RegistrationStatus, SessionOccurrenceStatus, SubSignupStatus, Weekday } from '../../generated/prisma/client.js'
+import type {
+  NotificationKind,
+  PlaySegmentSide,
+  RegistrationPlayMode,
+  RegistrationStatus,
+  SessionOccurrenceStatus,
+  SubAvailabilityMode,
+  SubSelectionType,
+  SubSignupStatus,
+  Weekday
+} from '../../generated/prisma/client.js'
 import type { SessionOccurrenceGetPayload } from '../../generated/prisma/models/SessionOccurrence.js'
 import { notificationQueue } from '../../integrations/bull/queue.js'
 import { prisma } from '../../shared/prisma.js'
@@ -52,9 +62,13 @@ const subSignupStatusActive: SubSignupStatus = 'ACTIVE'
 const subSignupStatusSelected: SubSignupStatus = 'SELECTED'
 const subSignupStatusReplaced: SubSignupStatus = 'REPLACED'
 const subSignupStatusCanceled: SubSignupStatus = 'CANCELED'
+const registrationPlayModePartial: RegistrationPlayMode = 'PARTIAL'
+const subSelectionTypeFull: SubSelectionType = 'FULL'
+const subSelectionTypePartial: SubSelectionType = 'PARTIAL'
 const leagueMembershipStatusActive = 'ACTIVE'
 const subSignupSummaryStatuses: SubSignupStatus[] = [subSignupStatusActive, subSignupStatusSelected]
 const millisecondsPerMinute = 60_000
+const partialMinutesBlockSize = 30
 const nextDayOffset = 1
 const dayEndHour = 23
 const dayEndMinute = 59
@@ -90,7 +104,18 @@ type SessionOccurrenceSummary = {
   registrationOpenAt: Date
   registrationCloseAt: Date
   registrationStatus: RegistrationStatus | null
+  registrationPlayMode: RegistrationPlayMode | null
+  registrationPlaySegmentSide: PlaySegmentSide | null
+  registrationPlayMinutes: number | null
+  registrationFillTargetRegistrationId: string | null
   subSignupStatus: SubSignupStatus | null
+  subAvailabilityMode: SubAvailabilityMode | null
+  subAvailabilitySegmentSide: PlaySegmentSide | null
+  subAvailabilityMinutes: number | null
+  subSelectionType: SubSelectionType | null
+  subAssignedStartOffsetMinutes: number | null
+  subAssignedEndOffsetMinutes: number | null
+  subPartialLocked: boolean
   isUserAssignedToSession: boolean
   attendingCount: number
   subCount: number
@@ -107,6 +132,7 @@ type SessionParticipantSummary = {
 }
 
 type SessionRosterEntry = {
+  id: string
   user: {
     id: string
     phoneNumber: string
@@ -117,10 +143,15 @@ type SessionRosterEntry = {
   }
   status: string
   selectionRank?: number | null
+  selectionType?: SubSelectionType | null
+  startOffsetMinutes?: number | null
+  endOffsetMinutes?: number | null
+  partialLocked?: boolean
 }
 
 type SessionOccurrenceDetail = {
   occurrenceId: string
+  sessionDurationMinutes: number
   attendees: SessionRosterEntry[]
   subs: SessionRosterEntry[]
   openSpots: number
@@ -130,6 +161,17 @@ type SessionOccurrenceDetail = {
   canSub: boolean
   isRegistrationOpen: boolean
   isUserAssignedToSession: boolean
+  myRegistrationPlayMode: RegistrationPlayMode | null
+  myRegistrationPlaySegmentSide: PlaySegmentSide | null
+  myRegistrationPlayMinutes: number | null
+  myRegistrationFillTargetRegistrationId: string | null
+  mySubAvailabilityMode: SubAvailabilityMode | null
+  mySubAvailabilitySegmentSide: PlaySegmentSide | null
+  mySubAvailabilityMinutes: number | null
+  mySubSelectionType: SubSelectionType | null
+  mySubAssignedStartOffsetMinutes: number | null
+  mySubAssignedEndOffsetMinutes: number | null
+  mySubPartialLocked: boolean
 }
 
 type OccurrenceWithSession = SessionOccurrenceGetPayload<{
@@ -234,6 +276,50 @@ const appendParticipantByOccurrence = (
   }
 
   participantsByOccurrenceId.set(occurrenceId, [participant])
+}
+
+const calculateSessionDurationMinutes = (startsAt: Date, endsAt: Date): number =>
+  Math.max(Math.round((endsAt.getTime() - startsAt.getTime()) / millisecondsPerMinute), 0)
+
+const hasValidPartialMinutes = (minutes: number, sessionDurationMinutes: number): boolean =>
+  Number.isInteger(minutes) &&
+  minutes > 0 &&
+  minutes % partialMinutesBlockSize === 0 &&
+  minutes < sessionDurationMinutes
+
+const resolveRegistrationOwnSegment = (
+  playMode: RegistrationPlayMode,
+  playSegmentSide: PlaySegmentSide | null,
+  playMinutes: number | null,
+  sessionDurationMinutes: number
+): { startOffsetMinutes: number; endOffsetMinutes: number; selectionType: SubSelectionType } => {
+  const isValidPartial =
+    playMode === registrationPlayModePartial &&
+    playSegmentSide !== null &&
+    playMinutes !== null &&
+    hasValidPartialMinutes(playMinutes, sessionDurationMinutes)
+
+  if (!isValidPartial) {
+    return {
+      startOffsetMinutes: 0,
+      endOffsetMinutes: sessionDurationMinutes,
+      selectionType: subSelectionTypeFull
+    }
+  }
+
+  if (playSegmentSide === 'START') {
+    return {
+      startOffsetMinutes: 0,
+      endOffsetMinutes: playMinutes,
+      selectionType: subSelectionTypePartial
+    }
+  }
+
+  return {
+    startOffsetMinutes: sessionDurationMinutes - playMinutes,
+    endOffsetMinutes: sessionDurationMinutes,
+    selectionType: subSelectionTypePartial
+  }
 }
 
 
@@ -463,8 +549,29 @@ export class SessionService {
     }
 
     const assignedSessionIds = new Set<string>()
-    const registrationStatusByOccurrenceId = new Map<string, RegistrationStatus>()
-    const subSignupStatusByOccurrenceId = new Map<string, SubSignupStatus>()
+    const registrationByOccurrenceId = new Map<
+      string,
+      {
+        status: RegistrationStatus
+        playMode: RegistrationPlayMode
+        playSegmentSide: PlaySegmentSide | null
+        playMinutes: number | null
+        fillTargetRegistrationId: string | null
+      }
+    >()
+    const subSignupByOccurrenceId = new Map<
+      string,
+      {
+        status: SubSignupStatus
+        availabilityMode: SubAvailabilityMode
+        availabilitySegmentSide: PlaySegmentSide | null
+        availabilityMinutes: number | null
+        selectionType: SubSelectionType | null
+        assignedStartOffsetMinutes: number | null
+        assignedEndOffsetMinutes: number | null
+        partialLocked: boolean
+      }
+    >()
     if (includeUserStatus) {
       const occurrenceIds = occurrences.map((occurrence) => occurrence.id)
       const sessionIds = Array.from(new Set(occurrences.map((occurrence) => occurrence.sessionId)))
@@ -479,7 +586,14 @@ export class SessionService {
         const [registrations, subSignups] = await Promise.all([
           prisma.sessionRegistration.findMany({
             where: { userId: userId as string, occurrenceId: { in: occurrenceIds } },
-            select: { occurrenceId: true, status: true }
+            select: {
+              occurrenceId: true,
+              status: true,
+              playMode: true,
+              playSegmentSide: true,
+              playMinutes: true,
+              fillTargetRegistrationId: true
+            }
           }),
           prisma.subSignup.findMany({
             where: {
@@ -487,14 +601,39 @@ export class SessionService {
               occurrenceId: { in: occurrenceIds },
               status: { in: subSignupSummaryStatuses }
             },
-            select: { occurrenceId: true, status: true }
+            select: {
+              occurrenceId: true,
+              status: true,
+              availabilityMode: true,
+              availabilitySegmentSide: true,
+              availabilityMinutes: true,
+              selectionType: true,
+              assignedStartOffsetMinutes: true,
+              assignedEndOffsetMinutes: true,
+              partialLocked: true
+            }
           })
         ])
         registrations.forEach((registration) => {
-          registrationStatusByOccurrenceId.set(registration.occurrenceId, registration.status)
+          registrationByOccurrenceId.set(registration.occurrenceId, {
+            status: registration.status,
+            playMode: registration.playMode,
+            playSegmentSide: registration.playSegmentSide,
+            playMinutes: registration.playMinutes,
+            fillTargetRegistrationId: registration.fillTargetRegistrationId
+          })
         })
         subSignups.forEach((signup) => {
-          subSignupStatusByOccurrenceId.set(signup.occurrenceId, signup.status)
+          subSignupByOccurrenceId.set(signup.occurrenceId, {
+            status: signup.status,
+            availabilityMode: signup.availabilityMode,
+            availabilitySegmentSide: signup.availabilitySegmentSide,
+            availabilityMinutes: signup.availabilityMinutes,
+            selectionType: signup.selectionType,
+            assignedStartOffsetMinutes: signup.assignedStartOffsetMinutes,
+            assignedEndOffsetMinutes: signup.assignedEndOffsetMinutes,
+            partialLocked: signup.partialLocked
+          })
         })
         const subSignupStatusCounts = subSignups.reduce<Record<SubSignupStatus, number>>(
           (counts, signup) => {
@@ -533,15 +672,15 @@ export class SessionService {
       const subUsers = subUsersByOccurrenceId.get(occurrence.id) ?? []
       if (includeUserStatus) {
         const typedOccurrence = occurrence as OccurrenceWithSession
-        const registrationStatus = registrationStatusByOccurrenceId.get(typedOccurrence.id) ?? null
-        const subSignupStatus = subSignupStatusByOccurrenceId.get(typedOccurrence.id) ?? null
+        const registration = registrationByOccurrenceId.get(typedOccurrence.id)
+        const subSignup = subSignupByOccurrenceId.get(typedOccurrence.id)
         const isUserAssignedToSession = assignedSessionIds.has(typedOccurrence.sessionId)
 
         const summarySubCount = summarySubCountByOccurrenceId.get(typedOccurrence.id) ?? 0
         return this.mapOccurrenceToSummary(
           typedOccurrence,
-          registrationStatus,
-          subSignupStatus,
+          registration ?? null,
+          subSignup ?? null,
           isUserAssignedToSession,
           attendingCount,
           summarySubCount,
@@ -806,20 +945,35 @@ export class SessionService {
     const registrationWindow = this.calculateRegistrationWindow(occurrence.startsAt)
     const now = new Date()
     const isRegistrationOpen = now >= registrationWindow.registrationOpenAt && now <= registrationWindow.registrationCloseAt
+    const sessionDurationMinutes = calculateSessionDurationMinutes(occurrence.startsAt, occurrence.endsAt)
 
-    const attendeeEntries: SessionRosterEntry[] = occurrence.registrations.map((registration) => ({
-      user: {
-        id: registration.user.id,
-        phoneNumber: registration.user.phoneNumber,
-        displayName: registration.user.displayName,
-        profileImageId: registration.user.profileImageId,
-        isOnApp: registration.user.isOnApp,
-        roleContextLeagueId: occurrence.session.leagueId
-      },
-      status: registration.status
-    }))
+    const attendeeEntries: SessionRosterEntry[] = occurrence.registrations.map((registration) => {
+      const ownSegment = resolveRegistrationOwnSegment(
+        registration.playMode,
+        registration.playSegmentSide,
+        registration.playMinutes,
+        sessionDurationMinutes
+      )
+      return {
+        id: registration.id,
+        user: {
+          id: registration.user.id,
+          phoneNumber: registration.user.phoneNumber,
+          displayName: registration.user.displayName,
+          profileImageId: registration.user.profileImageId,
+          isOnApp: registration.user.isOnApp,
+          roleContextLeagueId: occurrence.session.leagueId
+        },
+        status: registration.status,
+        selectionType: ownSegment.selectionType,
+        startOffsetMinutes: ownSegment.startOffsetMinutes,
+        endOffsetMinutes: ownSegment.endOffsetMinutes,
+        partialLocked: false
+      }
+    })
 
     const subEntries: SessionRosterEntry[] = occurrence.subSignups.map((signup) => ({
+      id: signup.id,
       user: {
         id: signup.user.id,
         phoneNumber: signup.user.phoneNumber,
@@ -829,7 +983,11 @@ export class SessionService {
         roleContextLeagueId: occurrence.session.leagueId
       },
       status: signup.status,
-      selectionRank: signup.selectionRank
+      selectionRank: signup.selectionRank,
+      selectionType: signup.selectionType,
+      startOffsetMinutes: signup.assignedStartOffsetMinutes,
+      endOffsetMinutes: signup.assignedEndOffsetMinutes,
+      partialLocked: signup.partialLocked
     }))
 
     const capacity = occurrence.session.capacity ?? sessionCapacityDefault
@@ -837,9 +995,20 @@ export class SessionService {
 
     let canRegister = false
     let canSub = false
+    let myRegistrationPlayMode: RegistrationPlayMode | null = null
+    let myRegistrationPlaySegmentSide: PlaySegmentSide | null = null
+    let myRegistrationPlayMinutes: number | null = null
+    let myRegistrationFillTargetRegistrationId: string | null = null
+    let mySubAvailabilityMode: SubAvailabilityMode | null = null
+    let mySubAvailabilitySegmentSide: PlaySegmentSide | null = null
+    let mySubAvailabilityMinutes: number | null = null
+    let mySubSelectionType: SubSelectionType | null = null
+    let mySubAssignedStartOffsetMinutes: number | null = null
+    let mySubAssignedEndOffsetMinutes: number | null = null
+    let mySubPartialLocked = false
 
     if (userId) {
-      const [leagueMembership, assignment, hasRegistration, hasSubSignup] =
+      const [leagueMembership, assignment, registration, subSignup] =
         await prisma.$transaction([
           prisma.leagueMembership.findUnique({
             where: {
@@ -861,10 +1030,27 @@ export class SessionService {
             }
           }),
           prisma.sessionRegistration.findFirst({
-            where: { userId, occurrenceId, status: registrationStatusAttending }
+            where: { userId, occurrenceId, status: registrationStatusAttending },
+            select: {
+              status: true,
+              playMode: true,
+              playSegmentSide: true,
+              playMinutes: true,
+              fillTargetRegistrationId: true
+            }
           }),
           prisma.subSignup.findFirst({
-            where: { userId, occurrenceId, status: { in: [subSignupStatusActive, subSignupStatusSelected] } }
+            where: { userId, occurrenceId, status: { in: [subSignupStatusActive, subSignupStatusSelected] } },
+            select: {
+              status: true,
+              availabilityMode: true,
+              availabilitySegmentSide: true,
+              availabilityMinutes: true,
+              selectionType: true,
+              assignedStartOffsetMinutes: true,
+              assignedEndOffsetMinutes: true,
+              partialLocked: true
+            }
           })
         ])
 
@@ -874,15 +1060,28 @@ export class SessionService {
         assignment?.sessionId === occurrence.sessionId
 
       canRegister = Boolean(
-        hasActiveLeagueMembership && isUserAssignedToSession && !hasRegistration
+        hasActiveLeagueMembership && isUserAssignedToSession && !registration
       )
       canSub = Boolean(
-        hasActiveLeagueMembership && !isUserAssignedToSession && !hasSubSignup
+        hasActiveLeagueMembership && !isUserAssignedToSession && !subSignup
       )
+
+      myRegistrationPlayMode = registration?.playMode ?? null
+      myRegistrationPlaySegmentSide = registration?.playSegmentSide ?? null
+      myRegistrationPlayMinutes = registration?.playMinutes ?? null
+      myRegistrationFillTargetRegistrationId = registration?.fillTargetRegistrationId ?? null
+      mySubAvailabilityMode = subSignup?.availabilityMode ?? null
+      mySubAvailabilitySegmentSide = subSignup?.availabilitySegmentSide ?? null
+      mySubAvailabilityMinutes = subSignup?.availabilityMinutes ?? null
+      mySubSelectionType = subSignup?.selectionType ?? null
+      mySubAssignedStartOffsetMinutes = subSignup?.assignedStartOffsetMinutes ?? null
+      mySubAssignedEndOffsetMinutes = subSignup?.assignedEndOffsetMinutes ?? null
+      mySubPartialLocked = subSignup?.partialLocked ?? false
       logger.info({ occurrenceId, userId, isUserAssignedToSession }, logResolvedSessionAssignmentStatus)
 
       return {
         occurrenceId,
+        sessionDurationMinutes,
         attendees: attendeeEntries,
         subs: subEntries,
         openSpots,
@@ -891,12 +1090,24 @@ export class SessionService {
         canRegister,
         canSub,
         isRegistrationOpen,
-        isUserAssignedToSession
+        isUserAssignedToSession,
+        myRegistrationPlayMode,
+        myRegistrationPlaySegmentSide,
+        myRegistrationPlayMinutes,
+        myRegistrationFillTargetRegistrationId,
+        mySubAvailabilityMode,
+        mySubAvailabilitySegmentSide,
+        mySubAvailabilityMinutes,
+        mySubSelectionType,
+        mySubAssignedStartOffsetMinutes,
+        mySubAssignedEndOffsetMinutes,
+        mySubPartialLocked
       }
     }
 
     return {
       occurrenceId,
+      sessionDurationMinutes,
       attendees: attendeeEntries,
       subs: subEntries,
       openSpots,
@@ -905,14 +1116,44 @@ export class SessionService {
       canRegister,
       canSub,
       isRegistrationOpen,
-      isUserAssignedToSession: false
+      isUserAssignedToSession: false,
+      myRegistrationPlayMode,
+      myRegistrationPlaySegmentSide,
+      myRegistrationPlayMinutes,
+      myRegistrationFillTargetRegistrationId,
+      mySubAvailabilityMode,
+      mySubAvailabilitySegmentSide,
+      mySubAvailabilityMinutes,
+      mySubSelectionType,
+      mySubAssignedStartOffsetMinutes,
+      mySubAssignedEndOffsetMinutes,
+      mySubPartialLocked
     }
   }
 
   private mapOccurrenceToSummary(
     occurrence: OccurrenceWithSession,
-    registrationStatus: RegistrationStatus | null,
-    subSignupStatus: SubSignupStatus | null,
+    registration:
+      | {
+          status: RegistrationStatus
+          playMode: RegistrationPlayMode
+          playSegmentSide: PlaySegmentSide | null
+          playMinutes: number | null
+          fillTargetRegistrationId: string | null
+        }
+      | null,
+    subSignup:
+      | {
+          status: SubSignupStatus
+          availabilityMode: SubAvailabilityMode
+          availabilitySegmentSide: PlaySegmentSide | null
+          availabilityMinutes: number | null
+          selectionType: SubSelectionType | null
+          assignedStartOffsetMinutes: number | null
+          assignedEndOffsetMinutes: number | null
+          partialLocked: boolean
+        }
+      | null,
     isUserAssignedToSession: boolean,
     attendingCount: number,
     summarySubCount: number,
@@ -934,8 +1175,19 @@ export class SessionService {
       endTime: occurrence.endsAt,
       capacity: occurrence.session.capacity ?? sessionCapacityDefault,
       ...this.calculateRegistrationWindow(occurrence.startsAt),
-      registrationStatus,
-      subSignupStatus,
+      registrationStatus: registration?.status ?? null,
+      registrationPlayMode: registration?.playMode ?? null,
+      registrationPlaySegmentSide: registration?.playSegmentSide ?? null,
+      registrationPlayMinutes: registration?.playMinutes ?? null,
+      registrationFillTargetRegistrationId: registration?.fillTargetRegistrationId ?? null,
+      subSignupStatus: subSignup?.status ?? null,
+      subAvailabilityMode: subSignup?.availabilityMode ?? null,
+      subAvailabilitySegmentSide: subSignup?.availabilitySegmentSide ?? null,
+      subAvailabilityMinutes: subSignup?.availabilityMinutes ?? null,
+      subSelectionType: subSignup?.selectionType ?? null,
+      subAssignedStartOffsetMinutes: subSignup?.assignedStartOffsetMinutes ?? null,
+      subAssignedEndOffsetMinutes: subSignup?.assignedEndOffsetMinutes ?? null,
+      subPartialLocked: subSignup?.partialLocked ?? false,
       isUserAssignedToSession,
       attendingCount,
       subCount: summarySubCount,

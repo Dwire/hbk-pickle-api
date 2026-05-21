@@ -27,6 +27,27 @@ enum RegistrationStatus {
   CANCELED
 }
 
+enum PlaySegmentSide {
+  START
+  END
+}
+
+enum RegistrationPlayMode {
+  FULL
+  PARTIAL
+}
+
+enum SubAvailabilityMode {
+  FULL_ONLY
+  FLEX
+  PARTIAL_ONLY
+}
+
+enum SubSelectionType {
+  FULL
+  PARTIAL
+}
+
 enum SubSignupStatus {
   ACTIVE
   CANCELED
@@ -246,14 +267,21 @@ model SessionRegistration {
   userId       String             @db.Uuid
   occurrenceId String             @db.Uuid
   status       RegistrationStatus
+  playMode     RegistrationPlayMode @default(FULL)
+  playSegmentSide PlaySegmentSide?
+  playMinutes  Int?
+  fillTargetRegistrationId String? @unique @db.Uuid
   updatedAt    DateTime           @updatedAt
   createdAt    DateTime           @default(now())
   user         User               @relation(fields: [userId], references: [id])
   occurrence   SessionOccurrence  @relation(fields: [occurrenceId], references: [id])
+  fillTargetRegistration SessionRegistration? @relation("RegistrationFillTarget", fields: [fillTargetRegistrationId], references: [id], onDelete: SetNull)
+  fillRegistrations SessionRegistration[] @relation("RegistrationFillTarget")
 
   @@unique([userId, occurrenceId])
   @@index([occurrenceId, status])
   @@index([userId, status])
+  @@index([occurrenceId, playMode])
 }
 
 model SubSignup {
@@ -261,6 +289,14 @@ model SubSignup {
   userId     String          @db.Uuid
   occurrenceId String        @db.Uuid
   status     SubSignupStatus
+  availabilityMode SubAvailabilityMode @default(FLEX)
+  availabilitySegmentSide PlaySegmentSide?
+  availabilityMinutes Int?
+  selectionType SubSelectionType?
+  assignedStartOffsetMinutes Int?
+  assignedEndOffsetMinutes Int?
+  partialLocked Boolean @default(false)
+  partialLockedAt DateTime?
   signedUpAt DateTime        @default(now())
   selectionRank Int?
   selectedAt DateTime?
@@ -272,6 +308,7 @@ model SubSignup {
   @@unique([userId, occurrenceId])
   @@index([occurrenceId, status, signedUpAt])
   @@index([userId, status])
+  @@index([occurrenceId, selectionType])
 }
 
 model OccurrenceAttendanceConfirmation {

@@ -1,18 +1,36 @@
+import type { PlaySegmentSide, SubAvailabilityMode } from '../../generated/prisma/client.js'
 import { prisma } from '../../shared/prisma.js'
 import { logger } from '../../shared/logger.js'
-import { SessionService } from '../sessions/sessionService.js'
 import { getEasternDayRangeUtc } from '../../shared/time.js'
+import { SessionService } from '../sessions/sessionService.js'
+
+import { rebalanceSubSelection, shouldRebalanceSubSelection } from './subSelectionRebalanceService.js'
 
 const subSignupStatusActive = 'ACTIVE'
 const subSignupStatusSelected = 'SELECTED'
 const subSignupStatusCanceled = 'CANCELED'
 const occurrenceStatusCanceled = 'CANCELED'
 const leagueMembershipStatusActive = 'ACTIVE'
+const minutesPerBlock = 30
+const millisecondsPerMinute = 60_000
+
+export type SetSubAvailabilityPreferenceInput = {
+  availabilityMode: SubAvailabilityMode
+  side?: PlaySegmentSide | null
+  minutes?: number | null
+}
+
+const isThirtyMinuteBlock = (value: number): boolean =>
+  Number.isInteger(value) && value > 0 && value % minutesPerBlock === 0
+
+const calculateSessionDurationMinutes = (startsAt: Date, endsAt: Date): number =>
+  Math.max(Math.round((endsAt.getTime() - startsAt.getTime()) / millisecondsPerMinute), 0)
 
 /**
  * SubSignupService
  * - Creates or reactivates sub signups for sessions.
  * - Cancels sub signups when requested.
+ * - Updates sub availability and partial lock preferences.
  * - Used by sub signup mutations.
  */
 export class SubSignupService {
@@ -140,7 +158,12 @@ export class SubSignupService {
             status: subSignupStatusActive,
             signedUpAt: now,
             selectionRank: null,
-            selectedAt: null
+            selectedAt: null,
+            selectionType: null,
+            assignedStartOffsetMinutes: null,
+            assignedEndOffsetMinutes: null,
+            partialLocked: false,
+            partialLockedAt: null
           }
         })
       : await prisma.subSignup.create({
@@ -153,17 +176,174 @@ export class SubSignupService {
         })
 
     logger.info({ occurrenceId, userId }, logUserSignedUpAsSub)
+
+    if (shouldRebalanceSubSelection(occurrence, now)) {
+      await rebalanceSubSelection(occurrence.id)
+    }
+
     return subSignup
   }
 
   public async cancel(userId: string, occurrenceId: string) {
+    const occurrence = await prisma.sessionOccurrence.findUnique({
+      where: { id: occurrenceId },
+      select: { id: true, startsAt: true, endsAt: true, status: true }
+    })
+    if (!occurrence) {
+      throw new Error('Session occurrence missing')
+    }
+
     const logUserCanceledSubSignup = 'User canceled sub signup'
     const subSignup = await prisma.subSignup.update({
       where: { userId_occurrenceId: { userId, occurrenceId } },
-      data: { status: subSignupStatusCanceled }
+      data: {
+        status: subSignupStatusCanceled,
+        selectionType: null,
+        assignedStartOffsetMinutes: null,
+        assignedEndOffsetMinutes: null,
+        partialLocked: false,
+        partialLockedAt: null
+      }
     })
 
     logger.info({ occurrenceId, userId }, logUserCanceledSubSignup)
+    if (shouldRebalanceSubSelection(occurrence)) {
+      await rebalanceSubSelection(occurrence.id)
+    }
     return subSignup
+  }
+
+  public async setAvailabilityPreference(
+    userId: string,
+    occurrenceId: string,
+    input: SetSubAvailabilityPreferenceInput
+  ) {
+    const occurrence = await prisma.sessionOccurrence.findUnique({
+      where: { id: occurrenceId },
+      include: { session: true }
+    })
+
+    if (!occurrence) {
+      throw new Error('Session occurrence missing')
+    }
+
+    if (occurrence.status === occurrenceStatusCanceled) {
+      throw new Error('Session occurrence canceled')
+    }
+
+    const now = new Date()
+    const sessionService = new SessionService()
+    if (!sessionService.isWithinSubSignupWindow(now, occurrence.endsAt)) {
+      throw new Error('Sub signup window closed')
+    }
+
+    const sessionDurationMinutes = calculateSessionDurationMinutes(occurrence.startsAt, occurrence.endsAt)
+    if (sessionDurationMinutes <= 0) {
+      throw new Error('Session duration invalid')
+    }
+
+    const availabilityMode = input.availabilityMode
+    let availabilitySegmentSide = input.side ?? null
+    let availabilityMinutes = input.minutes ?? null
+
+    if (availabilityMode === 'FULL_ONLY') {
+      availabilitySegmentSide = null
+      availabilityMinutes = null
+    } else if (availabilityMode === 'PARTIAL_ONLY') {
+      const validPartialOnlyPreference =
+        availabilitySegmentSide !== null &&
+        availabilityMinutes !== null &&
+        isThirtyMinuteBlock(availabilityMinutes) &&
+        availabilityMinutes < sessionDurationMinutes
+      if (!validPartialOnlyPreference) {
+        throw new Error('PARTIAL_ONLY availability requires side and 30-minute block minutes less than session duration')
+      }
+    } else {
+      const hasEitherPartialValue = availabilitySegmentSide !== null || availabilityMinutes !== null
+      if (hasEitherPartialValue) {
+        const validFlexPartialPreference =
+          availabilitySegmentSide !== null &&
+          availabilityMinutes !== null &&
+          isThirtyMinuteBlock(availabilityMinutes) &&
+          availabilityMinutes < sessionDurationMinutes
+        if (!validFlexPartialPreference) {
+          throw new Error('FLEX partial preference requires side and 30-minute block minutes less than session duration')
+        }
+      } else {
+        availabilitySegmentSide = null
+        availabilityMinutes = null
+      }
+    }
+
+    const existingSignup = await prisma.subSignup.findUnique({
+      where: { userId_occurrenceId: { userId, occurrenceId } }
+    })
+    const ensuredSignup =
+      !existingSignup || existingSignup.status === subSignupStatusCanceled
+        ? await this.signup(userId, occurrenceId)
+        : existingSignup
+
+    const updatedSignup = await prisma.subSignup.update({
+      where: { id: ensuredSignup.id },
+      data: {
+        availabilityMode,
+        availabilitySegmentSide,
+        availabilityMinutes,
+        partialLocked: availabilityMode === 'FULL_ONLY' ? false : ensuredSignup.partialLocked,
+        partialLockedAt:
+          availabilityMode === 'FULL_ONLY' ? null : ensuredSignup.partialLockedAt
+      }
+    })
+
+    if (shouldRebalanceSubSelection(occurrence, now)) {
+      await rebalanceSubSelection(occurrence.id)
+    }
+
+    return updatedSignup
+  }
+
+  public async setPartialLock(userId: string, occurrenceId: string, isLocked: boolean) {
+    const [occurrence, subSignup] = await prisma.$transaction([
+      prisma.sessionOccurrence.findUnique({
+        where: { id: occurrenceId },
+        include: { session: true }
+      }),
+      prisma.subSignup.findUnique({
+        where: { userId_occurrenceId: { userId, occurrenceId } }
+      })
+    ])
+
+    if (!occurrence) {
+      throw new Error('Session occurrence missing')
+    }
+
+    if (!subSignup) {
+      throw new Error('Sub signup missing')
+    }
+
+    const now = new Date()
+    const sessionService = new SessionService()
+    const { registrationCloseAt } = sessionService.calculateRegistrationWindow(occurrence.startsAt)
+    if (now < registrationCloseAt) {
+      throw new Error('Partial lock is only available after registration closes')
+    }
+
+    if (isLocked && (subSignup.status !== subSignupStatusSelected || subSignup.selectionType !== 'PARTIAL')) {
+      throw new Error('Only selected partial subs can lock a partial spot')
+    }
+
+    const updatedSignup = await prisma.subSignup.update({
+      where: { id: subSignup.id },
+      data: {
+        partialLocked: isLocked,
+        partialLockedAt: isLocked ? now : null
+      }
+    })
+
+    if (shouldRebalanceSubSelection(occurrence, now)) {
+      await rebalanceSubSelection(occurrence.id)
+    }
+
+    return updatedSignup
   }
 }
