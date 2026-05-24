@@ -36,5 +36,6 @@
 - sessionsWeek sub signup status returns ACTIVE or SELECTED records for the current user (canceled/replaced are excluded).
 - Session occurrence summaries report subCount using ACTIVE + SELECTED sub signups (canceled/replaced excluded).
 - Session occurrence summaries report attendingCount using ATTENDING registrations only (canceled/declined excluded).
+- Session occurrence `openSpots` values in detail/admin views use effective occupancy (`capacity - effectiveRegisteredOccupiedSlots`) where non-overlapping registered partial attendees can share one slot.
 - Session occurrence summaries include `registeredUsers` and `subUsers` participant lists (`id`, `displayName`, `profileImageUrl`) for ATTENDING and ACTIVE/SELECTED sub signup states respectively.
 - Sub participant lists and session detail `subs` are ordered by sub queue signup time (`signedUpAt` ascending).

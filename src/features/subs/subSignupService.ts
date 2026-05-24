@@ -2,6 +2,11 @@ import type { PlaySegmentSide, SubAvailabilityMode } from '../../generated/prism
 import { prisma } from '../../shared/prisma.js'
 import { logger } from '../../shared/logger.js'
 import { getEasternDayRangeUtc } from '../../shared/time.js'
+import {
+  calculateSessionDurationMinutes,
+  isValidPartialMinutes,
+  partialMinutesBlockSize
+} from '../../shared/attendanceCoverage.js'
 import { SessionService } from '../sessions/sessionService.js'
 
 import { rebalanceSubSelection, shouldRebalanceSubSelection } from './subSelectionRebalanceService.js'
@@ -11,20 +16,12 @@ const subSignupStatusSelected = 'SELECTED'
 const subSignupStatusCanceled = 'CANCELED'
 const occurrenceStatusCanceled = 'CANCELED'
 const leagueMembershipStatusActive = 'ACTIVE'
-const minutesPerBlock = 30
-const millisecondsPerMinute = 60_000
 
 export type SetSubAvailabilityPreferenceInput = {
   availabilityMode: SubAvailabilityMode
   side?: PlaySegmentSide | null
   minutes?: number | null
 }
-
-const isThirtyMinuteBlock = (value: number): boolean =>
-  Number.isInteger(value) && value > 0 && value % minutesPerBlock === 0
-
-const calculateSessionDurationMinutes = (startsAt: Date, endsAt: Date): number =>
-  Math.max(Math.round((endsAt.getTime() - startsAt.getTime()) / millisecondsPerMinute), 0)
 
 /**
  * SubSignupService
@@ -253,10 +250,12 @@ export class SubSignupService {
       const validPartialOnlyPreference =
         availabilitySegmentSide !== null &&
         availabilityMinutes !== null &&
-        isThirtyMinuteBlock(availabilityMinutes) &&
+        isValidPartialMinutes(availabilityMinutes, sessionDurationMinutes) &&
         availabilityMinutes < sessionDurationMinutes
       if (!validPartialOnlyPreference) {
-        throw new Error('PARTIAL_ONLY availability requires side and 30-minute block minutes less than session duration')
+        throw new Error(
+          `PARTIAL_ONLY availability requires side and ${partialMinutesBlockSize}-minute block minutes less than session duration`
+        )
       }
     } else {
       const hasEitherPartialValue = availabilitySegmentSide !== null || availabilityMinutes !== null
@@ -264,10 +263,12 @@ export class SubSignupService {
         const validFlexPartialPreference =
           availabilitySegmentSide !== null &&
           availabilityMinutes !== null &&
-          isThirtyMinuteBlock(availabilityMinutes) &&
+          isValidPartialMinutes(availabilityMinutes, sessionDurationMinutes) &&
           availabilityMinutes < sessionDurationMinutes
         if (!validFlexPartialPreference) {
-          throw new Error('FLEX partial preference requires side and 30-minute block minutes less than session duration')
+          throw new Error(
+            `FLEX partial preference requires side and ${partialMinutesBlockSize}-minute block minutes less than session duration`
+          )
         }
       } else {
         availabilitySegmentSide = null

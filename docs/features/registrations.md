@@ -8,6 +8,7 @@
 
 - Register for session occurrence (attendance).
 - Cancel registration for an occurrence.
+- Set registration play preference (`FULL` or edge-aligned `PARTIAL` in 15-minute blocks).
 
 ## Key Files
 
@@ -19,3 +20,5 @@
 - Upsert registration record per occurrence with ATTENDING or CANCELED.
 - Require `LeagueMembership.status = ACTIVE` for the occurrence league.
 - Registration attempts are rejected when the target occurrence status is `CANCELED`.
+- Post-close registration updates can reduce playtime (`FULL -> PARTIAL`) but cannot increase playtime.
+- `fillTargetRegistrationId` is retained in the API shape for compatibility but ignored server-side by selection logic.

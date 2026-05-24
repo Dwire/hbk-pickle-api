@@ -2,13 +2,17 @@ import type { PlaySegmentSide, RegistrationPlayMode } from '../../generated/pris
 import { prisma } from '../../shared/prisma.js'
 import { logger } from '../../shared/logger.js'
 import { getEasternDayRangeUtc } from '../../shared/time.js'
+import {
+  buildRegistrationOwnSegment,
+  calculateSessionDurationMinutes,
+  partialMinutesBlockSize,
+  isValidPartialMinutes
+} from '../../shared/attendanceCoverage.js'
 import { SessionService } from '../sessions/sessionService.js'
 import { rebalanceSubSelection, shouldRebalanceSubSelection } from '../subs/subSelectionRebalanceService.js'
 
 const occurrenceStatusCanceled = 'CANCELED'
 const leagueMembershipStatusActive = 'ACTIVE'
-const minutesPerBlock = 30
-const millisecondsPerMinute = 60_000
 
 type TimeSegment = {
   startOffsetMinutes: number
@@ -22,77 +26,14 @@ export type SetRegistrationPlayPreferenceInput = {
   fillTargetRegistrationId?: string | null
 }
 
-const isThirtyMinuteBlock = (value: number): boolean =>
-  Number.isInteger(value) && value > 0 && value % minutesPerBlock === 0
-
-const calculateSessionDurationMinutes = (startsAt: Date, endsAt: Date): number =>
-  Math.max(Math.round((endsAt.getTime() - startsAt.getTime()) / millisecondsPerMinute), 0)
-
 const buildOwnSegment = (
   mode: RegistrationPlayMode,
   side: PlaySegmentSide | null,
   minutes: number | null,
   sessionDurationMinutes: number
 ): TimeSegment => {
-  const isValidPartial =
-    mode === 'PARTIAL' &&
-    side !== null &&
-    minutes !== null &&
-    isThirtyMinuteBlock(minutes) &&
-    minutes < sessionDurationMinutes
-
-  if (!isValidPartial) {
-    return {
-      startOffsetMinutes: 0,
-      endOffsetMinutes: sessionDurationMinutes
-    }
-  }
-
-  if (side === 'START') {
-    return {
-      startOffsetMinutes: 0,
-      endOffsetMinutes: minutes
-    }
-  }
-
-  return {
-    startOffsetMinutes: sessionDurationMinutes - minutes,
-    endOffsetMinutes: sessionDurationMinutes
-  }
+  return buildRegistrationOwnSegment(mode, side, minutes, sessionDurationMinutes)
 }
-
-const buildGapSegment = (
-  mode: RegistrationPlayMode,
-  side: PlaySegmentSide | null,
-  minutes: number | null,
-  sessionDurationMinutes: number
-): TimeSegment | null => {
-  const isValidPartial =
-    mode === 'PARTIAL' &&
-    side !== null &&
-    minutes !== null &&
-    isThirtyMinuteBlock(minutes) &&
-    minutes < sessionDurationMinutes
-
-  if (!isValidPartial) {
-    return null
-  }
-
-  if (side === 'START') {
-    return {
-      startOffsetMinutes: minutes,
-      endOffsetMinutes: sessionDurationMinutes
-    }
-  }
-
-  return {
-    startOffsetMinutes: 0,
-    endOffsetMinutes: sessionDurationMinutes - minutes
-  }
-}
-
-const segmentsOverlap = (left: TimeSegment, right: TimeSegment): boolean =>
-  left.startOffsetMinutes < right.endOffsetMinutes && right.startOffsetMinutes < left.endOffsetMinutes
 
 /**
  * RegistrationService
@@ -267,10 +208,12 @@ export class RegistrationService {
       nextMode === 'PARTIAL' &&
       (nextSide === null ||
         nextMinutes === null ||
-        !isThirtyMinuteBlock(nextMinutes) ||
+        !isValidPartialMinutes(nextMinutes, sessionDurationMinutes) ||
         nextMinutes >= sessionDurationMinutes)
     ) {
-      throw new Error('Partial play preference must include side and 30-minute block minutes less than session duration')
+      throw new Error(
+        `Partial play preference must include side and ${partialMinutesBlockSize}-minute block minutes less than session duration`
+      )
     }
 
     const nextOwnSegment = buildOwnSegment(nextMode, nextSide, nextMinutes, sessionDurationMinutes)
@@ -280,57 +223,13 @@ export class RegistrationService {
       throw new Error('Cannot increase registered play time after registration closes')
     }
 
-    let nextFillTargetRegistrationId: string | null = input.fillTargetRegistrationId ?? null
-    if (nextMode !== 'PARTIAL') {
-      nextFillTargetRegistrationId = null
-    }
-
-    if (nextFillTargetRegistrationId) {
-      if (nextFillTargetRegistrationId === registration.id) {
-        throw new Error('Cannot fill your own partial slot')
-      }
-
-      const targetRegistration = await prisma.sessionRegistration.findUnique({
-        where: { id: nextFillTargetRegistrationId },
-        select: {
-          id: true,
-          occurrenceId: true,
-          status: true,
-          playMode: true,
-          playSegmentSide: true,
-          playMinutes: true
-        }
-      })
-
-      if (!targetRegistration || targetRegistration.occurrenceId !== occurrenceId || targetRegistration.status !== 'ATTENDING') {
-        throw new Error('Fill target registration missing')
-      }
-
-      const targetGapSegment = buildGapSegment(
-        targetRegistration.playMode,
-        targetRegistration.playSegmentSide,
-        targetRegistration.playMinutes,
-        sessionDurationMinutes
-      )
-
-      if (!targetGapSegment) {
-        throw new Error('Fill target must be a registered partial player')
-      }
-
-      const targetGapMinutes = targetGapSegment.endOffsetMinutes - targetGapSegment.startOffsetMinutes
-      const overlapsTargetGap = segmentsOverlap(nextOwnSegment, targetGapSegment)
-      if (overlapsTargetGap || nextOwnMinutes + targetGapMinutes > sessionDurationMinutes) {
-        throw new Error('Fill target segment overlaps your own play or exceeds session duration')
-      }
-    }
-
     const updatedRegistration = await prisma.sessionRegistration.update({
       where: { id: registration.id },
       data: {
         playMode: nextMode,
         playSegmentSide: nextSide,
         playMinutes: nextMinutes,
-        fillTargetRegistrationId: nextFillTargetRegistrationId
+        fillTargetRegistrationId: null
       }
     })
 

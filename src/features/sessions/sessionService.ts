@@ -27,6 +27,11 @@ import {
   getEasternWeekRangeUtc,
   shiftDateByDays
 } from '../../shared/time.js'
+import {
+  calculateEffectiveRegisteredOccupancy,
+  calculateSessionDurationMinutes,
+  isValidPartialMinutes
+} from '../../shared/attendanceCoverage.js'
 import { resolveProfileImageUrl } from '../../integrations/cloudflare/profileImageUrl.js'
 
 const liveOpenHour = 10
@@ -68,7 +73,6 @@ const subSelectionTypePartial: SubSelectionType = 'PARTIAL'
 const leagueMembershipStatusActive = 'ACTIVE'
 const subSignupSummaryStatuses: SubSignupStatus[] = [subSignupStatusActive, subSignupStatusSelected]
 const millisecondsPerMinute = 60_000
-const partialMinutesBlockSize = 30
 const nextDayOffset = 1
 const dayEndHour = 23
 const dayEndMinute = 59
@@ -278,15 +282,6 @@ const appendParticipantByOccurrence = (
   participantsByOccurrenceId.set(occurrenceId, [participant])
 }
 
-const calculateSessionDurationMinutes = (startsAt: Date, endsAt: Date): number =>
-  Math.max(Math.round((endsAt.getTime() - startsAt.getTime()) / millisecondsPerMinute), 0)
-
-const hasValidPartialMinutes = (minutes: number, sessionDurationMinutes: number): boolean =>
-  Number.isInteger(minutes) &&
-  minutes > 0 &&
-  minutes % partialMinutesBlockSize === 0 &&
-  minutes < sessionDurationMinutes
-
 const resolveRegistrationOwnSegment = (
   playMode: RegistrationPlayMode,
   playSegmentSide: PlaySegmentSide | null,
@@ -297,7 +292,7 @@ const resolveRegistrationOwnSegment = (
     playMode === registrationPlayModePartial &&
     playSegmentSide !== null &&
     playMinutes !== null &&
-    hasValidPartialMinutes(playMinutes, sessionDurationMinutes)
+    isValidPartialMinutes(playMinutes, sessionDurationMinutes)
 
   if (!isValidPartial) {
     return {
@@ -991,7 +986,20 @@ export class SessionService {
     }))
 
     const capacity = occurrence.session.capacity ?? sessionCapacityDefault
-    const openSpots = Math.max(capacity - occurrence.registrations.length, 0)
+    const registrationOccupancy = calculateEffectiveRegisteredOccupancy(
+      occurrence.registrations.map((registration) => ({
+        id: registration.id,
+        createdAt: registration.createdAt,
+        playMode: registration.playMode,
+        playSegmentSide: registration.playSegmentSide,
+        playMinutes: registration.playMinutes
+      })),
+      sessionDurationMinutes
+    )
+    const openSpots = Math.max(
+      capacity - registrationOccupancy.effectiveOccupiedSlots,
+      0
+    )
 
     let canRegister = false
     let canSub = false
@@ -1069,7 +1077,7 @@ export class SessionService {
       myRegistrationPlayMode = registration?.playMode ?? null
       myRegistrationPlaySegmentSide = registration?.playSegmentSide ?? null
       myRegistrationPlayMinutes = registration?.playMinutes ?? null
-      myRegistrationFillTargetRegistrationId = registration?.fillTargetRegistrationId ?? null
+      myRegistrationFillTargetRegistrationId = null
       mySubAvailabilityMode = subSignup?.availabilityMode ?? null
       mySubAvailabilitySegmentSide = subSignup?.availabilitySegmentSide ?? null
       mySubAvailabilityMinutes = subSignup?.availabilityMinutes ?? null
@@ -1179,7 +1187,7 @@ export class SessionService {
       registrationPlayMode: registration?.playMode ?? null,
       registrationPlaySegmentSide: registration?.playSegmentSide ?? null,
       registrationPlayMinutes: registration?.playMinutes ?? null,
-      registrationFillTargetRegistrationId: registration?.fillTargetRegistrationId ?? null,
+      registrationFillTargetRegistrationId: null,
       subSignupStatus: subSignup?.status ?? null,
       subAvailabilityMode: subSignup?.availabilityMode ?? null,
       subAvailabilitySegmentSide: subSignup?.availabilitySegmentSide ?? null,

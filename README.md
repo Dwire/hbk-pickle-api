@@ -37,7 +37,7 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - Admin CRUD APIs for leagues, session templates, session occurrences, slot assignments, and league memberships
 - Admin read APIs for org-scoped league lists, league detail/rules, occurrence rosters, and player search/filter pagination
 - Admin league detail nested query returns league rules, sessions, assignments, and occurrence summaries in one request with archived/canceled/date filters
-- Admin league detail occurrence rows include `attendingCount` (ATTENDING), `subCount` (ACTIVE + SELECTED), and `openSpots` (`max(capacity - attendingCount, 0)`)
+- Admin league detail occurrence rows include `attendingCount` (ATTENDING), `subCount` (ACTIVE + SELECTED), and `openSpots` (`max(capacity - effectiveRegisteredOccupiedSlots, 0)` with registered-partial auto-pairing)
 - Admin player management mutations where `adminCreatePlayer` requires `leagueId` and atomically ensures `LeagueMembership.ACTIVE`
 - `adminUpdatePlayer` supports org-scoped role updates (`PLAYER`/`ADMIN`) with owner-protection constraints
 - Admin player create/update no longer accept `isOnApp`; onboarding completion owns that flag
@@ -69,6 +69,8 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - sessionsWeek sub signup status returns ACTIVE or SELECTED sub signups for the current user
 - sessionsWeek subCount reflects ACTIVE + SELECTED sub signups (canceled/replaced excluded)
 - Sub ordering uses signup queue time (`signedUpAt`); cancel + re-sub places the user at the end of the sub list
+- Partial attendance/sub preferences use 15-minute blocks (`START`/`END` + minutes)
+- Sub selection auto-pairs non-overlapping registered partial attendees, preserves selected subs when compatible capacity remains, and applies mode-aware queue behavior (`FULL_ONLY`, `FLEX`, `PARTIAL_ONLY`)
 - sessionsWeek attendingCount reflects ATTENDING registrations only (canceled/declined excluded)
 - sessionsWeek returns `registeredUsers` and `subUsers` participant objects (`id`, `displayName`, `profileImageUrl`) for ATTENDING registrations and ACTIVE/SELECTED sub signups
 - Member `league`, `rules`, and `sessionsWeek` queries require `organizationId`, support optional `leagueId`, and enforce that explicit league ids belong to the provided organization
@@ -100,7 +102,9 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - src/app/auth.ts: Auth + org/league access guards
 - src/features/admin/adminManagementService.ts: Admin CRUD orchestration, delete semantics, and occurrence attendance confirmation reads/writes
 - src/features/profilePhoto/profilePhotoService.ts: Profile photo upload intent, completion, replacement/delete, and stale-intent cleanup orchestration
+- src/features/subs/subSelectionEngine.ts: Deterministic sub-selection engine (registered partial pairing + queue assignment rules)
 - src/shared/config.ts: Typed environment config
+- src/shared/attendanceCoverage.ts: Shared 15-minute segment math and effective registered occupancy calculations
 - src/shared/phone.ts: E.164 phone normalization utility
 - src/shared/logger.ts: Pino logger wrapper
 - src/scripts/seed.ts: Full-wipe seed script for canonical orgs, optional private owner seed users (`SEED_PRIVATE_USERS_JSON`), and Demo Org league/user generation
@@ -115,7 +119,7 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 
 ## Documentation
 
-- docs/features: One doc per feature module with responsibilities and data flow (see organizations-memberships.md for tenancy/auth model, attendance-confirmation.md for admin in-person check-in confirmation flow, profile-photos.md for Cloudflare upload flows, account-deletion.md for self-serve hard delete semantics, utc-time.md for UTC contract, dev-debugging.md for local debugger workflow, jobs-watch.md for local worker+ticker orchestration, demo-org-autofill.md for scheduler-time demo population behavior, and fly-deployment.md for production deployment/runbook guidance)
+- docs/features: One doc per feature module with responsibilities and data flow (see organizations-memberships.md for tenancy/auth model, attendance-confirmation.md for admin in-person check-in confirmation flow, profile-photos.md for Cloudflare upload flows, account-deletion.md for self-serve hard delete semantics, sub-selection.md for backend pairing/queue behavior, utc-time.md for UTC contract, dev-debugging.md for local debugger workflow, jobs-watch.md for local worker+ticker orchestration, demo-org-autofill.md for scheduler-time demo population behavior, and fly-deployment.md for production deployment/runbook guidance)
 
 ## API Contract Notes
 
