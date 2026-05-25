@@ -60,6 +60,7 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - Registration windows open 10am ET day before and close at 7pm ET day before; sub signups remain open until the session ends (Eastern rules applied to UTC instants)
 - Register/sub mutations require `LeagueMembership.ACTIVE` and reject attempts for canceled occurrences
 - `sessionOccurrenceDetail` capability flags (`canRegister`, `canSub`) require `LeagueMembership.ACTIVE` to match mutation enforcement
+- `sessionOccurrenceDetail.attendees/subs` rows include optional `splitPartner` (`id`, `displayName`, `profileImageUrl`) for backend-authored partial split display metadata
 - Scheduler ticks enqueue Bull sub-selection jobs from registration close through occurrence end; sub-selection worker recomputes selection and sends push notifications only for selection state changes
 - Scheduler tick runs demo-org active-league autofill during open registration windows: query scope is bounded to next-day Eastern occurrences, zero-attendee occurrences auto-register assigned users to a randomized 50%-80% capacity target, and failures log diagnostic context while adding at most one sub per tick with an 8-sub (`ACTIVE` + `SELECTED`) cap
 - Scheduler tick also cleans up expired, unused profile-photo upload intents and attempts provider-side orphan deletion
@@ -102,6 +103,7 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - src/app/auth.ts: Auth + org/league access guards
 - src/features/admin/adminManagementService.ts: Admin CRUD orchestration, delete semantics, and occurrence attendance confirmation reads/writes
 - src/features/profilePhoto/profilePhotoService.ts: Profile photo upload intent, completion, replacement/delete, and stale-intent cleanup orchestration
+- src/features/sessions/splitPartnerResolver.ts: Deterministic split-partner pairing metadata resolver for occurrence-detail roster rows
 - src/features/subs/subSelectionEngine.ts: Deterministic sub-selection engine (registered partial pairing + queue assignment rules)
 - src/shared/config.ts: Typed environment config
 - src/shared/attendanceCoverage.ts: Shared 15-minute segment math and effective registered occupancy calculations

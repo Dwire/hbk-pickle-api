@@ -34,6 +34,12 @@ import {
 } from '../../shared/attendanceCoverage.js'
 import { resolveProfileImageUrl } from '../../integrations/cloudflare/profileImageUrl.js'
 
+import {
+  resolveSplitPartnerMap,
+  type SplitPartnerAttendeeCandidate,
+  type SplitPartnerSubCandidate
+} from './splitPartnerResolver.js'
+
 const liveOpenHour = 10
 const liveOpenMinute = 0
 const liveOpenSecond = 0
@@ -151,6 +157,7 @@ type SessionRosterEntry = {
   startOffsetMinutes?: number | null
   endOffsetMinutes?: number | null
   partialLocked?: boolean
+  splitPartner?: SessionParticipantSummary | null
 }
 
 type SessionOccurrenceDetail = {
@@ -941,6 +948,7 @@ export class SessionService {
     const now = new Date()
     const isRegistrationOpen = now >= registrationWindow.registrationOpenAt && now <= registrationWindow.registrationCloseAt
     const sessionDurationMinutes = calculateSessionDurationMinutes(occurrence.startsAt, occurrence.endsAt)
+    const splitPartnerAttendeeCandidates: SplitPartnerAttendeeCandidate[] = []
 
     const attendeeEntries: SessionRosterEntry[] = occurrence.registrations.map((registration) => {
       const ownSegment = resolveRegistrationOwnSegment(
@@ -949,6 +957,21 @@ export class SessionService {
         registration.playMinutes,
         sessionDurationMinutes
       )
+      const attendeeParticipantSummary: SessionParticipantSummary = {
+        id: registration.user.id,
+        displayName: registration.user.displayName?.trim() || null,
+        profileImageUrl: resolveProfileImageUrl(registration.user.profileImageId)
+      }
+      if (ownSegment.selectionType === subSelectionTypePartial) {
+        splitPartnerAttendeeCandidates.push({
+          rosterEntryId: registration.id,
+          participant: attendeeParticipantSummary,
+          startOffsetMinutes: ownSegment.startOffsetMinutes,
+          endOffsetMinutes: ownSegment.endOffsetMinutes,
+          createdAt: registration.createdAt
+        })
+      }
+
       return {
         id: registration.id,
         user: {
@@ -963,27 +986,63 @@ export class SessionService {
         selectionType: ownSegment.selectionType,
         startOffsetMinutes: ownSegment.startOffsetMinutes,
         endOffsetMinutes: ownSegment.endOffsetMinutes,
-        partialLocked: false
+        partialLocked: false,
+        splitPartner: null
       }
     })
 
-    const subEntries: SessionRosterEntry[] = occurrence.subSignups.map((signup) => ({
-      id: signup.id,
-      user: {
-        id: signup.user.id,
-        phoneNumber: signup.user.phoneNumber,
-        displayName: signup.user.displayName,
-        profileImageId: signup.user.profileImageId,
-        isOnApp: signup.user.isOnApp,
-        roleContextLeagueId: occurrence.session.leagueId
-      },
-      status: signup.status,
-      selectionRank: signup.selectionRank,
-      selectionType: signup.selectionType,
-      startOffsetMinutes: signup.assignedStartOffsetMinutes,
-      endOffsetMinutes: signup.assignedEndOffsetMinutes,
-      partialLocked: signup.partialLocked
-    }))
+    const splitPartnerSubCandidates: SplitPartnerSubCandidate[] = []
+    const subEntries: SessionRosterEntry[] = occurrence.subSignups.map((signup) => {
+      const isSelectedPartialWithAssignedSegment =
+        signup.status === subSignupStatusSelected &&
+        signup.selectionType === subSelectionTypePartial &&
+        signup.assignedStartOffsetMinutes !== null &&
+        signup.assignedEndOffsetMinutes !== null
+      if (isSelectedPartialWithAssignedSegment) {
+        splitPartnerSubCandidates.push({
+          rosterEntryId: signup.id,
+          participant: {
+            id: signup.user.id,
+            displayName: signup.user.displayName?.trim() || null,
+            profileImageUrl: resolveProfileImageUrl(signup.user.profileImageId)
+          },
+          startOffsetMinutes: signup.assignedStartOffsetMinutes as number,
+          endOffsetMinutes: signup.assignedEndOffsetMinutes as number,
+          signedUpAt: signup.signedUpAt
+        })
+      }
+
+      return {
+        id: signup.id,
+        user: {
+          id: signup.user.id,
+          phoneNumber: signup.user.phoneNumber,
+          displayName: signup.user.displayName,
+          profileImageId: signup.user.profileImageId,
+          isOnApp: signup.user.isOnApp,
+          roleContextLeagueId: occurrence.session.leagueId
+        },
+        status: signup.status,
+        selectionRank: signup.selectionRank,
+        selectionType: signup.selectionType,
+        startOffsetMinutes: signup.assignedStartOffsetMinutes,
+        endOffsetMinutes: signup.assignedEndOffsetMinutes,
+        partialLocked: signup.partialLocked,
+        splitPartner: null
+      }
+    })
+
+    const splitPartnerByRosterEntryId = resolveSplitPartnerMap({
+      sessionDurationMinutes,
+      attendeeCandidates: splitPartnerAttendeeCandidates,
+      subCandidates: splitPartnerSubCandidates
+    })
+    attendeeEntries.forEach((entry) => {
+      entry.splitPartner = splitPartnerByRosterEntryId.get(entry.id) ?? null
+    })
+    subEntries.forEach((entry) => {
+      entry.splitPartner = splitPartnerByRosterEntryId.get(entry.id) ?? null
+    })
 
     const capacity = occurrence.session.capacity ?? sessionCapacityDefault
     const registrationOccupancy = calculateEffectiveRegisteredOccupancy(

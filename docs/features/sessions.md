@@ -17,6 +17,7 @@
 ## Key Files
 
 - src/features/sessions/sessionService.ts: Week listing, occurrence detail, counters, and notification queueing.
+- src/features/sessions/splitPartnerResolver.ts: Deterministic split-partner pairing map for occurrence detail roster rows.
 - src/app/graphql/schema.ts: Session queries and admin mutations (templates + occurrences).
 - src/shared/constants.ts: Registration window timing.
 
@@ -37,5 +38,6 @@
 - Session occurrence summaries report subCount using ACTIVE + SELECTED sub signups (canceled/replaced excluded).
 - Session occurrence summaries report attendingCount using ATTENDING registrations only (canceled/declined excluded).
 - Session occurrence `openSpots` values in detail/admin views use effective occupancy (`capacity - effectiveRegisteredOccupiedSlots`) where non-overlapping registered partial attendees can share one slot.
+- `sessionOccurrenceDetail.attendees/subs` rows include optional `splitPartner` (`id`, `displayName`, `profileImageUrl`) so clients can render split relationships without re-pairing.
 - Session occurrence summaries include `registeredUsers` and `subUsers` participant lists (`id`, `displayName`, `profileImageUrl`) for ATTENDING and ACTIVE/SELECTED sub signup states respectively.
 - Sub participant lists and session detail `subs` are ordered by sub queue signup time (`signedUpAt` ascending).

@@ -409,6 +409,7 @@ const typeDefs = `#graphql
     startOffsetMinutes: Int
     endOffsetMinutes: Int
     partialLocked: Boolean
+    splitPartner: SessionParticipant
   }
 
   type SessionOccurrenceDetail {
