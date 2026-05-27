@@ -29,6 +29,15 @@ type PairingCandidate = {
   minutes: number
 }
 
+export type PartialPairingCandidate = PairingCandidate & {
+  side: PlaySegmentSide
+}
+
+export type MatchedPartialPair = {
+  startCandidateId: string
+  endCandidateId: string
+}
+
 type NormalizedRegistrationCoverage = {
   id: string
   gap: PartialSlot | null
@@ -42,6 +51,7 @@ export type EffectiveRegistrationOccupancy = {
   pairedPartialCount: number
   effectiveOccupiedSlots: number
   pairedRegistrationIds: Set<string>
+  matchedPairs: MatchedPartialPair[]
   unpairedPartialSlots: PartialSlot[]
 }
 
@@ -181,11 +191,20 @@ const buildNormalizedCoverage = (
     }))
     .sort(byCreatedAtThenId)
 
-const createPairings = (
-  startCandidates: PairingCandidate[],
-  endCandidates: PairingCandidate[],
+/**
+ * Deterministic max-cardinality matching for edge-aligned partials.
+ * Objective is pair count only (not dead-time minimization) so callers can layer in weighted matching later.
+ */
+export const matchEdgeAlignedPartials = (
+  candidates: PartialPairingCandidate[],
   sessionDurationMinutes: number
-): Set<string> => {
+): MatchedPartialPair[] => {
+  const startCandidates = candidates.filter(
+    (candidate) => candidate.side === 'START'
+  )
+  const endCandidates = candidates.filter(
+    (candidate) => candidate.side === 'END'
+  )
   const sortedStarts = [...startCandidates].sort(byCreatedAtThenId)
   const sortedEnds = [...endCandidates].sort(byCreatedAtThenId)
   const rightMatches = new Array<number>(sortedEnds.length).fill(-1)
@@ -224,18 +243,20 @@ const createPairings = (
     findAugmentingPath(leftIndex, new Set<number>())
   }
 
-  const pairedRegistrationIds = new Set<string>()
+  const matchedPairs: MatchedPartialPair[] = []
   for (let rightIndex = 0; rightIndex < rightMatches.length; rightIndex += 1) {
     const leftIndex = rightMatches[rightIndex]
     if (leftIndex === -1) {
       continue
     }
 
-    pairedRegistrationIds.add(sortedStarts[leftIndex].id)
-    pairedRegistrationIds.add(sortedEnds[rightIndex].id)
+    matchedPairs.push({
+      startCandidateId: sortedStarts[leftIndex].id,
+      endCandidateId: sortedEnds[rightIndex].id
+    })
   }
 
-  return pairedRegistrationIds
+  return matchedPairs
 }
 
 export const calculateEffectiveRegisteredOccupancy = (
@@ -249,6 +270,7 @@ export const calculateEffectiveRegisteredOccupancy = (
       pairedPartialCount: 0,
       effectiveOccupiedSlots: 0,
       pairedRegistrationIds: new Set<string>(),
+      matchedPairs: [],
       unpairedPartialSlots: []
     }
   }
@@ -259,6 +281,7 @@ export const calculateEffectiveRegisteredOccupancy = (
       pairedPartialCount: 0,
       effectiveOccupiedSlots: attendingCount,
       pairedRegistrationIds: new Set<string>(),
+      matchedPairs: [],
       unpairedPartialSlots: []
     }
   }
@@ -268,8 +291,7 @@ export const calculateEffectiveRegisteredOccupancy = (
     sessionDurationMinutes
   )
 
-  const startPartials: PairingCandidate[] = []
-  const endPartials: PairingCandidate[] = []
+  const partialCandidates: PartialPairingCandidate[] = []
   for (const registration of normalizedRegistrations) {
     const validPartial =
       registration.gap !== null &&
@@ -280,23 +302,24 @@ export const calculateEffectiveRegisteredOccupancy = (
       continue
     }
 
-    const candidate: PairingCandidate = {
+    const candidate: PartialPairingCandidate = {
       id: registration.id,
       createdAt: registration.createdAt,
-      minutes: registration.playMinutes as number
+      minutes: registration.playMinutes as number,
+      side: registration.playSide as PlaySegmentSide
     }
-    if (registration.playSide === 'START') {
-      startPartials.push(candidate)
-    } else {
-      endPartials.push(candidate)
-    }
+    partialCandidates.push(candidate)
   }
 
-  const pairedRegistrationIds = createPairings(
-    startPartials,
-    endPartials,
+  const matchedPairs = matchEdgeAlignedPartials(
+    partialCandidates,
     sessionDurationMinutes
   )
+  const pairedRegistrationIds = new Set<string>()
+  for (const matchedPair of matchedPairs) {
+    pairedRegistrationIds.add(matchedPair.startCandidateId)
+    pairedRegistrationIds.add(matchedPair.endCandidateId)
+  }
   const pairedPartialCount = Math.floor(pairedRegistrationIds.size / 2)
   const effectiveOccupiedSlots = Math.max(
     attendingCount - pairedPartialCount,
@@ -315,6 +338,7 @@ export const calculateEffectiveRegisteredOccupancy = (
     pairedPartialCount,
     effectiveOccupiedSlots,
     pairedRegistrationIds,
+    matchedPairs,
     unpairedPartialSlots
   }
 }

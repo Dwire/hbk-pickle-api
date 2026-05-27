@@ -968,6 +968,8 @@ export class SessionService {
           participant: attendeeParticipantSummary,
           startOffsetMinutes: ownSegment.startOffsetMinutes,
           endOffsetMinutes: ownSegment.endOffsetMinutes,
+          playSegmentSide: registration.playSegmentSide as PlaySegmentSide,
+          playMinutes: registration.playMinutes as number,
           createdAt: registration.createdAt
         })
       }

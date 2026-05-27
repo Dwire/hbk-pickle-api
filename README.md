@@ -60,7 +60,7 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - Registration windows open 10am ET day before and close at 7pm ET day before; sub signups remain open until the session ends (Eastern rules applied to UTC instants)
 - Register/sub mutations require `LeagueMembership.ACTIVE` and reject attempts for canceled occurrences
 - `sessionOccurrenceDetail` capability flags (`canRegister`, `canSub`) require `LeagueMembership.ACTIVE` to match mutation enforcement
-- `sessionOccurrenceDetail.attendees/subs` rows include optional `splitPartner` (`id`, `displayName`, `profileImageUrl`) for backend-authored partial split display metadata
+- `sessionOccurrenceDetail.attendees/subs` rows include optional `splitPartner` (`id`, `displayName`, `profileImageUrl`) for backend-authored deterministic non-overlap split display metadata aligned with effective occupancy pairing
 - Scheduler ticks enqueue Bull sub-selection jobs from registration close through occurrence end; sub-selection worker recomputes selection and sends push notifications only for selection state changes
 - Scheduler tick runs demo-org active-league autofill during open registration windows: query scope is bounded to next-day Eastern occurrences, zero-attendee occurrences auto-register assigned users to a randomized 50%-80% capacity target, and failures log diagnostic context while adding at most one sub per tick with an 8-sub (`ACTIVE` + `SELECTED`) cap
 - Scheduler tick also cleans up expired, unused profile-photo upload intents and attempts provider-side orphan deletion

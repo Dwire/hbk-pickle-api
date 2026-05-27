@@ -1,4 +1,8 @@
-import { segmentsOverlap } from '../../shared/attendanceCoverage.js'
+import type { PlaySegmentSide } from '../../generated/prisma/client.js'
+import {
+  matchEdgeAlignedPartials,
+  segmentsOverlap
+} from '../../shared/attendanceCoverage.js'
 
 export type SplitPartnerSummary = {
   id: string
@@ -11,6 +15,8 @@ export type SplitPartnerAttendeeCandidate = {
   participant: SplitPartnerSummary
   startOffsetMinutes: number
   endOffsetMinutes: number
+  playSegmentSide: PlaySegmentSide
+  playMinutes: number
   createdAt: Date
 }
 
@@ -81,15 +87,10 @@ const areCompatibleSplitPartners = (
     right.startOffsetMinutes
   )
   const coveredEnd = Math.max(left.endOffsetMinutes, right.endOffsetMinutes)
-  const totalCoveredMinutes =
-    left.endOffsetMinutes -
-    left.startOffsetMinutes +
-    (right.endOffsetMinutes - right.startOffsetMinutes)
 
   return (
-    coveredStart === 0 &&
-    coveredEnd === sessionDurationMinutes &&
-    totalCoveredMinutes === sessionDurationMinutes
+    coveredStart >= 0 &&
+    coveredEnd <= sessionDurationMinutes
   )
 }
 
@@ -231,16 +232,41 @@ export const resolveSplitPartnerMap = ({
   const normalizedSubs = normalizeSubCandidates(subCandidates)
   const pairedRosterEntryIds = new Set<string>()
 
+  const matchedAttendeePairs = matchEdgeAlignedPartials(
+    attendeeCandidates.map((candidate) => ({
+      id: candidate.rosterEntryId,
+      createdAt: candidate.createdAt,
+      side: candidate.playSegmentSide,
+      minutes: candidate.playMinutes
+    })),
+    sessionDurationMinutes
+  )
+  const attendeeCandidateByRosterEntryId = new Map(
+    normalizedAttendees.map((candidate) => [candidate.rosterEntryId, candidate])
+  )
+  for (const matchedAttendeePair of matchedAttendeePairs) {
+    const startCandidate = attendeeCandidateByRosterEntryId.get(
+      matchedAttendeePair.startCandidateId
+    )
+    const endCandidate = attendeeCandidateByRosterEntryId.get(
+      matchedAttendeePair.endCandidateId
+    )
+    if (!startCandidate || !endCandidate) {
+      continue
+    }
+
+    pairCandidates(
+      startCandidate,
+      endCandidate,
+      pairedByRosterEntryId,
+      pairedRosterEntryIds
+    )
+  }
+
   // Priority order:
-  // 1) attendee-attendee
+  // 1) attendee-attendee (shared occupancy matcher)
   // 2) attendee-sub
   // 3) sub-sub
-  pairWithinPool(
-    normalizedAttendees,
-    sessionDurationMinutes,
-    pairedByRosterEntryId,
-    pairedRosterEntryIds
-  )
   pairAcrossPools(
     normalizedAttendees,
     normalizedSubs,

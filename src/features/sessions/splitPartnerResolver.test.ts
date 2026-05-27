@@ -2,6 +2,11 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 
 import {
+  matchEdgeAlignedPartials,
+  type MatchedPartialPair
+} from '../../shared/attendanceCoverage.js'
+
+import {
   resolveSplitPartnerMap,
   type SplitPartnerAttendeeCandidate,
   type SplitPartnerSubCandidate
@@ -26,6 +31,8 @@ const attendee = (
   },
   startOffsetMinutes,
   endOffsetMinutes,
+  playSegmentSide: startOffsetMinutes === 0 ? 'START' : 'END',
+  playMinutes: endOffsetMinutes - startOffsetMinutes,
   createdAt: atSeconds(createdAtSeconds)
 })
 
@@ -101,15 +108,15 @@ test('uses registered-pair priority then deterministic ordering', () => {
   assert.equal(splitPartnerMap.get('sub-1')?.id, 'user-att-3')
 })
 
-test('leaves unpaired partial rows without split partner', () => {
+test('pairs non-overlapping rows even when combined coverage has dead time', () => {
   const splitPartnerMap = resolveSplitPartnerMap({
     sessionDurationMinutes: 120,
     attendeeCandidates: [attendee('att-1', 0, 30, 1)],
     subCandidates: [sub('sub-1', 60, 120, 1)]
   })
 
-  assert.equal(splitPartnerMap.has('att-1'), false)
-  assert.equal(splitPartnerMap.has('sub-1'), false)
+  assert.equal(splitPartnerMap.get('att-1')?.id, 'user-sub-1')
+  assert.equal(splitPartnerMap.get('sub-1')?.id, 'user-att-1')
 })
 
 test('returns no split partners when there are no partial candidates (full rows)', () => {
@@ -137,4 +144,55 @@ test('returns stable pairings across repeated runs', () => {
   const secondResult = resolveSplitPartnerMap(input)
 
   assert.deepEqual(Array.from(firstResult.entries()), Array.from(secondResult.entries()))
+})
+
+test('attendee-attendee split partners match shared occupancy matcher edges', () => {
+  const attendeeCandidates: SplitPartnerAttendeeCandidate[] = [
+    attendee('att-a', 0, 75, 1),
+    attendee('att-b', 75, 120, 2),
+    attendee('att-c', 0, 45, 3),
+    attendee('att-d', 45, 120, 4)
+  ]
+  const splitPartnerMap = resolveSplitPartnerMap({
+    sessionDurationMinutes: 120,
+    attendeeCandidates,
+    subCandidates: []
+  })
+
+  const matchedPairs = matchEdgeAlignedPartials(
+    attendeeCandidates.map((candidate) => ({
+      id: candidate.rosterEntryId,
+      createdAt: candidate.createdAt,
+      side: candidate.playSegmentSide,
+      minutes: candidate.playMinutes
+    })),
+    120
+  )
+  const matchedPairSet = new Set(
+    matchedPairs.map((pair: MatchedPartialPair) =>
+      [pair.startCandidateId, pair.endCandidateId].sort().join('|')
+    )
+  )
+
+  const observedAttendeePairSet = new Set(
+    attendeeCandidates
+      .map((candidate) => {
+        const partnerId = splitPartnerMap.get(candidate.rosterEntryId)?.id
+        if (!partnerId) {
+          return null
+        }
+
+        const partnerRosterEntryId = attendeeCandidates.find(
+          (entry) => entry.participant.id === partnerId
+        )?.rosterEntryId
+        if (!partnerRosterEntryId) {
+          return null
+        }
+
+        return [candidate.rosterEntryId, partnerRosterEntryId].sort().join('|')
+      })
+      .filter((value): value is string => value !== null)
+  )
+
+  assert.deepEqual(observedAttendeePairSet, matchedPairSet)
 })
