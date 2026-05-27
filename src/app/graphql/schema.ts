@@ -233,6 +233,27 @@ const typeDefs = `#graphql
     CANCELED
   }
 
+  enum PlaySegmentSide {
+    START
+    END
+  }
+
+  enum RegistrationPlayMode {
+    FULL
+    PARTIAL
+  }
+
+  enum SubAvailabilityMode {
+    FULL_ONLY
+    FLEX
+    PARTIAL_ONLY
+  }
+
+  enum SubSelectionType {
+    FULL
+    PARTIAL
+  }
+
   enum SubSignupStatus {
     ACTIVE
     CANCELED
@@ -320,7 +341,18 @@ const typeDefs = `#graphql
     registrationOpenAt: DateTime!
     registrationCloseAt: DateTime!
     registrationStatus: RegistrationStatus
+    registrationPlayMode: RegistrationPlayMode
+    registrationPlaySegmentSide: PlaySegmentSide
+    registrationPlayMinutes: Int
+    registrationFillTargetRegistrationId: ID
     subSignupStatus: SubSignupStatus
+    subAvailabilityMode: SubAvailabilityMode
+    subAvailabilitySegmentSide: PlaySegmentSide
+    subAvailabilityMinutes: Int
+    subSelectionType: SubSelectionType
+    subAssignedStartOffsetMinutes: Int
+    subAssignedEndOffsetMinutes: Int
+    subPartialLocked: Boolean!
     isUserAssignedToSession: Boolean!
     attendingCount: Int!
     subCount: Int!
@@ -339,11 +371,22 @@ const typeDefs = `#graphql
   type SessionRegistration {
     id: ID!
     status: RegistrationStatus!
+    playMode: RegistrationPlayMode!
+    playSegmentSide: PlaySegmentSide
+    playMinutes: Int
+    fillTargetRegistrationId: ID
   }
 
   type SubSignup {
     id: ID!
     status: SubSignupStatus!
+    availabilityMode: SubAvailabilityMode!
+    availabilitySegmentSide: PlaySegmentSide
+    availabilityMinutes: Int
+    selectionType: SubSelectionType
+    assignedStartOffsetMinutes: Int
+    assignedEndOffsetMinutes: Int
+    partialLocked: Boolean!
     selectionRank: Int
     selectedAt: DateTime
   }
@@ -358,13 +401,20 @@ const typeDefs = `#graphql
   }
 
   type SessionRosterEntry {
+    id: ID!
     user: User!
     status: String!
     selectionRank: Int
+    selectionType: SubSelectionType
+    startOffsetMinutes: Int
+    endOffsetMinutes: Int
+    partialLocked: Boolean
+    splitPartner: SessionParticipant
   }
 
   type SessionOccurrenceDetail {
     occurrenceId: ID!
+    sessionDurationMinutes: Int!
     attendees: [SessionRosterEntry!]!
     subs: [SessionRosterEntry!]!
     openSpots: Int!
@@ -374,6 +424,17 @@ const typeDefs = `#graphql
     canSub: Boolean!
     isRegistrationOpen: Boolean!
     isUserAssignedToSession: Boolean!
+    myRegistrationPlayMode: RegistrationPlayMode
+    myRegistrationPlaySegmentSide: PlaySegmentSide
+    myRegistrationPlayMinutes: Int
+    myRegistrationFillTargetRegistrationId: ID
+    mySubAvailabilityMode: SubAvailabilityMode
+    mySubAvailabilitySegmentSide: PlaySegmentSide
+    mySubAvailabilityMinutes: Int
+    mySubSelectionType: SubSelectionType
+    mySubAssignedStartOffsetMinutes: Int
+    mySubAssignedEndOffsetMinutes: Int
+    mySubPartialLocked: Boolean!
   }
 
   type AuthPayload {
@@ -594,6 +655,19 @@ const typeDefs = `#graphql
     maxOccurrencesPerSession: Int = 250
   }
 
+  input SetRegistrationPlayPreferenceInput {
+    mode: RegistrationPlayMode!
+    side: PlaySegmentSide
+    minutes: Int
+    fillTargetRegistrationId: ID
+  }
+
+  input SetSubAvailabilityPreferenceInput {
+    availabilityMode: SubAvailabilityMode!
+    side: PlaySegmentSide
+    minutes: Int
+  }
+
   type Query {
     me: User
     organizations: [Organization!]!
@@ -623,8 +697,17 @@ const typeDefs = `#graphql
 
     registerForSession(occurrenceId: ID!): SessionRegistration!
     cancelRegistration(occurrenceId: ID!): SessionRegistration!
+    setRegistrationPlayPreference(
+      occurrenceId: ID!
+      input: SetRegistrationPlayPreferenceInput!
+    ): SessionRegistration!
     signupAsSub(occurrenceId: ID!): SubSignup!
     cancelSubSignup(occurrenceId: ID!): SubSignup!
+    setSubAvailabilityPreference(
+      occurrenceId: ID!
+      input: SetSubAvailabilityPreferenceInput!
+    ): SubSignup!
+    setSubPartialLock(occurrenceId: ID!, isLocked: Boolean!): SubSignup!
 
     adminCreateLeague(input: AdminCreateLeagueInput!): AdminLeague!
     adminUpdateLeague(leagueId: ID!, input: AdminUpdateLeagueInput!): AdminLeague!
@@ -1071,6 +1154,28 @@ const resolvers = {
       const service = new RegistrationService()
       return service.cancel(userId, args.occurrenceId)
     },
+    setRegistrationPlayPreference: async (
+      _: unknown,
+      args: {
+        occurrenceId: string
+        input: {
+          mode: 'FULL' | 'PARTIAL'
+          side?: 'START' | 'END' | null
+          minutes?: number | null
+          fillTargetRegistrationId?: string | null
+        }
+      },
+      context: AppContext
+    ) => {
+      const userId = requireAuth(context)
+      const service = new RegistrationService()
+      return service.setPlayPreference(userId, args.occurrenceId, {
+        mode: args.input.mode,
+        side: args.input.side ?? null,
+        minutes: args.input.minutes ?? null,
+        fillTargetRegistrationId: args.input.fillTargetRegistrationId ?? null
+      })
+    },
     signupAsSub: async (
       _: unknown,
       args: { occurrenceId: string },
@@ -1088,6 +1193,35 @@ const resolvers = {
       const userId = requireAuth(context)
       const service = new SubSignupService()
       return service.cancel(userId, args.occurrenceId)
+    },
+    setSubAvailabilityPreference: async (
+      _: unknown,
+      args: {
+        occurrenceId: string
+        input: {
+          availabilityMode: 'FULL_ONLY' | 'FLEX' | 'PARTIAL_ONLY'
+          side?: 'START' | 'END' | null
+          minutes?: number | null
+        }
+      },
+      context: AppContext
+    ) => {
+      const userId = requireAuth(context)
+      const service = new SubSignupService()
+      return service.setAvailabilityPreference(userId, args.occurrenceId, {
+        availabilityMode: args.input.availabilityMode,
+        side: args.input.side ?? null,
+        minutes: args.input.minutes ?? null
+      })
+    },
+    setSubPartialLock: async (
+      _: unknown,
+      args: { occurrenceId: string; isLocked: boolean },
+      context: AppContext
+    ) => {
+      const userId = requireAuth(context)
+      const service = new SubSignupService()
+      return service.setPartialLock(userId, args.occurrenceId, args.isLocked)
     },
     adminCreateLeague: async (
       _: unknown,

@@ -11,6 +11,7 @@
 - attendance-confirmation.md: Admin-managed in-person attendance confirmation per occurrence/user
 - registrations.md: Attendance registration
 - sub-signups.md: Sub signup logic
+- sub-selection.md: Backend sub-selection pairing/queue engine and effective occupancy math
 - profile-stats.md: Profile stats aggregation for the profile page
 - rules.md: League rules content
 - notifications.md: Push notifications delivery

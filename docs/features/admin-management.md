@@ -32,7 +32,7 @@
 - League lifecycle enforces one `ACTIVE` league per organization (DB partial unique index + service archive behavior).
 - Admin league and player list queries are organization-scoped and support pagination (`limit`/`offset`) with `search` and `isOnApp` filters.
 - Admin session detail applies `AdminLeagueDetailInput` filters (`includeArchivedSessions`, `includeCanceledOccurrences`, `occurrenceStart`, `occurrenceEnd`, `maxOccurrencesPerSession`).
-- Session detail occurrence rows expose `attendingCount` (`ATTENDING` registrations), `subCount` (`ACTIVE` + `SELECTED` sub signups), and `openSpots` (`max(capacity - attendingCount, 0)`).
+- Session detail occurrence rows expose `attendingCount` (`ATTENDING` registrations), `subCount` (`ACTIVE` + `SELECTED` sub signups), and `openSpots` (`max(capacity - effectiveRegisteredOccupiedSlots, 0)` with registered-partial auto-pairing).
 - Slot assignment accepts phone numbers, normalizes to E.164, upserts users, and auto-upserts `LeagueMembership` to `ACTIVE`.
 - `adminCreatePlayer` is league-scoped (`leagueId` required), upserts/creates the user by phone, and upserts `LeagueMembership` to `ACTIVE` in the same transaction.
 - `adminCreatePlayer` and `adminUpdatePlayer` do not accept or mutate `isOnApp`; onboarding completion owns that flag.

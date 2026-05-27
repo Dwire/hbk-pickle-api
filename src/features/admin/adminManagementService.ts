@@ -2,7 +2,9 @@ import { Prisma as PrismaClient } from '../../generated/prisma/client.js'
 import type {
   LeagueMembershipStatus,
   LeagueStatus,
+  PlaySegmentSide,
   RegistrationStatus,
+  RegistrationPlayMode,
   Prisma,
   SessionOccurrenceStatus,
   SessionStatus,
@@ -12,6 +14,10 @@ import type {
 import { sessionCapacityDefault } from '../../shared/constants.js'
 import { normalizePhoneNumber } from '../../shared/phone.js'
 import { prisma } from '../../shared/prisma.js'
+import {
+  calculateEffectiveRegisteredOccupancy,
+  calculateSessionDurationMinutes
+} from '../../shared/attendanceCoverage.js'
 import { SessionService } from '../sessions/sessionService.js'
 
 const leagueStatusDraft: LeagueStatus = 'DRAFT'
@@ -81,6 +87,15 @@ const subSignupSummaryStatuses: SubSignupStatus[] = [
 ]
 
 type TransactionClient = Prisma.TransactionClient
+
+type OccurrenceAttendingRegistrationCoverage = {
+  id: string
+  occurrenceId: string
+  createdAt: Date
+  playMode: RegistrationPlayMode
+  playSegmentSide: PlaySegmentSide | null
+  playMinutes: number | null
+}
 
 export type AdminDeleteOutcome = {
   id: string
@@ -200,6 +215,7 @@ export type AdminAttendanceConfirmation = {
 }
 
 export type AdminOccurrenceRosterEntry = {
+  id: string
   user: {
     id: string
     phoneNumber: string
@@ -771,9 +787,9 @@ export class AdminManagementService {
     ])
 
     const occurrenceIds = cappedOccurrences.map((occurrence) => occurrence.id)
-    const [attendingCounts, subCounts] =
+    const [attendingCounts, subCounts, attendingRegistrations] =
       occurrenceIds.length === 0
-        ? [[], []]
+        ? [[], [], []]
         : await Promise.all([
             prisma.sessionRegistration.groupBy({
               by: ['occurrenceId'],
@@ -790,6 +806,20 @@ export class AdminManagementService {
                 status: { in: subSignupSummaryStatuses }
               },
               _count: { _all: true }
+            }),
+            prisma.sessionRegistration.findMany({
+              where: {
+                occurrenceId: { in: occurrenceIds },
+                status: registrationStatusAttending
+              },
+              select: {
+                id: true,
+                occurrenceId: true,
+                createdAt: true,
+                playMode: true,
+                playSegmentSide: true,
+                playMinutes: true
+              }
             })
           ])
 
@@ -826,6 +856,19 @@ export class AdminManagementService {
     for (const subCount of subCounts) {
       subCountByOccurrenceId.set(subCount.occurrenceId, subCount._count._all)
     }
+    const attendingRegistrationsByOccurrenceId = new Map<
+      string,
+      OccurrenceAttendingRegistrationCoverage[]
+    >()
+    for (const registration of attendingRegistrations) {
+      const existingRegistrations =
+        attendingRegistrationsByOccurrenceId.get(registration.occurrenceId) ?? []
+      existingRegistrations.push(registration)
+      attendingRegistrationsByOccurrenceId.set(
+        registration.occurrenceId,
+        existingRegistrations
+      )
+    }
 
     const sessionCapacityBySessionId = new Map<string, number>(
       sessions.map((session) => [session.id, session.capacity])
@@ -839,6 +882,14 @@ export class AdminManagementService {
       const sessionCapacity =
         sessionCapacityBySessionId.get(occurrence.sessionId) ??
         sessionCapacityDefault
+      const sessionDurationMinutes = calculateSessionDurationMinutes(
+        occurrence.startsAt,
+        occurrence.endsAt
+      )
+      const registrationOccupancy = calculateEffectiveRegisteredOccupancy(
+        attendingRegistrationsByOccurrenceId.get(occurrence.id) ?? [],
+        sessionDurationMinutes
+      )
       const occurrenceSummary: AdminLeagueDetailOccurrence = {
         id: occurrence.id,
         sessionId: occurrence.sessionId,
@@ -849,7 +900,10 @@ export class AdminManagementService {
         updatedAt: occurrence.updatedAt,
         attendingCount,
         subCount,
-        openSpots: Math.max(sessionCapacity - attendingCount, paginationOffsetDefault)
+        openSpots: Math.max(
+          sessionCapacity - registrationOccupancy.effectiveOccupiedSlots,
+          paginationOffsetDefault
+        )
       }
 
       const existingOccurrences =
@@ -924,7 +978,7 @@ export class AdminManagementService {
     }
 
     const occurrenceIds = cappedOccurrences.map((occurrence) => occurrence.id)
-    const [attendingCounts, subCounts] = await Promise.all([
+    const [attendingCounts, subCounts, attendingRegistrations] = await Promise.all([
       prisma.sessionRegistration.groupBy({
         by: ['occurrenceId'],
         where: {
@@ -940,6 +994,20 @@ export class AdminManagementService {
           status: { in: subSignupSummaryStatuses }
         },
         _count: { _all: true }
+      }),
+      prisma.sessionRegistration.findMany({
+        where: {
+          occurrenceId: { in: occurrenceIds },
+          status: registrationStatusAttending
+        },
+        select: {
+          id: true,
+          occurrenceId: true,
+          createdAt: true,
+          playMode: true,
+          playSegmentSide: true,
+          playMinutes: true
+        }
       })
     ])
 
@@ -955,12 +1023,33 @@ export class AdminManagementService {
     for (const subCount of subCounts) {
       subCountByOccurrenceId.set(subCount.occurrenceId, subCount._count._all)
     }
+    const attendingRegistrationsByOccurrenceId = new Map<
+      string,
+      OccurrenceAttendingRegistrationCoverage[]
+    >()
+    for (const registration of attendingRegistrations) {
+      const existingRegistrations =
+        attendingRegistrationsByOccurrenceId.get(registration.occurrenceId) ?? []
+      existingRegistrations.push(registration)
+      attendingRegistrationsByOccurrenceId.set(
+        registration.occurrenceId,
+        existingRegistrations
+      )
+    }
 
     return cappedOccurrences.map((occurrence) => {
       const attendingCount =
         attendingCountByOccurrenceId.get(occurrence.id) ?? paginationOffsetDefault
       const subCount =
         subCountByOccurrenceId.get(occurrence.id) ?? paginationOffsetDefault
+      const sessionDurationMinutes = calculateSessionDurationMinutes(
+        occurrence.startsAt,
+        occurrence.endsAt
+      )
+      const registrationOccupancy = calculateEffectiveRegisteredOccupancy(
+        attendingRegistrationsByOccurrenceId.get(occurrence.id) ?? [],
+        sessionDurationMinutes
+      )
       return {
         id: occurrence.id,
         sessionId: occurrence.sessionId,
@@ -971,7 +1060,10 @@ export class AdminManagementService {
         updatedAt: occurrence.updatedAt,
         attendingCount,
         subCount,
-        openSpots: Math.max(sessionCapacity - attendingCount, paginationOffsetDefault)
+        openSpots: Math.max(
+          sessionCapacity - registrationOccupancy.effectiveOccupiedSlots,
+          paginationOffsetDefault
+        )
       }
     })
   }
@@ -1069,6 +1161,7 @@ export class AdminManagementService {
     }
 
     const attendees = occurrence.registrations.map((registration) => ({
+      id: registration.id,
       user: {
         id: registration.user.id,
         phoneNumber: registration.user.phoneNumber,
@@ -1081,6 +1174,7 @@ export class AdminManagementService {
     }))
 
     const subs = occurrence.subSignups.map((subSignup) => ({
+      id: subSignup.id,
       user: {
         id: subSignup.user.id,
         phoneNumber: subSignup.user.phoneNumber,
@@ -1093,11 +1187,27 @@ export class AdminManagementService {
       selectionRank: subSignup.selectionRank
     }))
 
-    const attendeeCount = occurrence.registrations.filter(
+    const attendingRegistrations = occurrence.registrations.filter(
       (registration) => registration.status === registrationStatusAttending
-    ).length
+    )
+    const sessionDurationMinutes = calculateSessionDurationMinutes(
+      occurrence.startsAt,
+      occurrence.endsAt
+    )
+    const registrationOccupancy = calculateEffectiveRegisteredOccupancy(
+      attendingRegistrations.map((registration) => ({
+        id: registration.id,
+        occurrenceId: registration.occurrenceId,
+        createdAt: registration.createdAt,
+        playMode: registration.playMode,
+        playSegmentSide: registration.playSegmentSide,
+        playMinutes: registration.playMinutes
+      })),
+      sessionDurationMinutes
+    )
     const openSpots = Math.max(
-      (occurrence.session.capacity ?? sessionCapacityDefault) - attendeeCount,
+      (occurrence.session.capacity ?? sessionCapacityDefault) -
+        registrationOccupancy.effectiveOccupiedSlots,
       0
     )
     const rosterUserIds = this.resolveOccurrenceRosterUserIds(
@@ -2386,12 +2496,17 @@ export class AdminManagementService {
         ? {
             signedUpAt: new Date(),
             selectionRank: null,
-            selectedAt: null
+            selectedAt: null,
+            selectionType: null,
+            assignedStartOffsetMinutes: null,
+            assignedEndOffsetMinutes: null,
+            partialLocked: false,
+            partialLockedAt: null
           }
         : status === subSignupStatusSelected
           ? {
-              selectedAt: existingSubSignup.selectedAt ?? new Date()
-            }
+            selectedAt: existingSubSignup.selectedAt ?? new Date()
+          }
           : {}
 
     return prisma.subSignup.update({

@@ -25,6 +25,12 @@ lint:
 
 check: typecheck lint
 
+# Run unit tests.
+# Parameters: none.
+
+test:
+	pnpm test
+
 # Format project files with Prettier.
 
 format:

@@ -1,5 +1,9 @@
 import { prisma } from '../../shared/prisma.js'
 import { logger } from '../../shared/logger.js'
+import { calculateSessionDurationMinutes } from '../../shared/attendanceCoverage.js'
+import { SessionService } from '../sessions/sessionService.js'
+
+import { computeSubSelection } from './subSelectionEngine.js'
 
 type SelectionResult = {
   newlySelectedIds: string[]
@@ -22,7 +26,10 @@ export class SubSelectionService {
       where: { id: occurrenceId },
       include: {
         session: true,
-        registrations: { where: { status: 'ATTENDING' } },
+        registrations: {
+          where: { status: 'ATTENDING' },
+          orderBy: { createdAt: 'asc' }
+        },
         subSignups: { orderBy: { signedUpAt: 'asc' } }
       }
     })
@@ -31,22 +38,57 @@ export class SubSelectionService {
       throw new Error('Session occurrence missing')
     }
 
-    const capacity = occurrence.session.capacity ?? 0
-    const attendingCount = occurrence.registrations.length
-    const openSlots = Math.max(capacity - attendingCount, 0)
+    const sessionDurationMinutes = calculateSessionDurationMinutes(
+      occurrence.startsAt,
+      occurrence.endsAt
+    )
 
-    const activeSignups = occurrence.subSignups.filter((signup) => signup.status === 'ACTIVE' || signup.status === 'SELECTED')
-    const selected = activeSignups.slice(0, openSlots)
-    const overflow = activeSignups.slice(openSlots)
+    if (sessionDurationMinutes <= 0) {
+      return {
+        newlySelectedIds: [],
+        replacedIds: [],
+        stillActiveIds: []
+      }
+    }
 
-    const selectedIds = selected.map((signup) => signup.id)
-    const overflowIds = overflow.map((signup) => signup.id)
+    const sessionService = new SessionService()
+    const { registrationCloseAt } = sessionService.calculateRegistrationWindow(occurrence.startsAt)
+    const now = new Date()
+    const isRegistrationClosed = now >= registrationCloseAt
 
-    const previouslySelectedIds = occurrence.subSignups.filter((signup) => signup.status === 'SELECTED').map((signup) => signup.id)
-    const previouslySelectedIdSet = new Set(previouslySelectedIds)
-    const replacedIds = previouslySelectedIds.filter((id) => !selectedIds.includes(id))
-    const newlySelectedIds = selectedIds.filter((id) => !previouslySelectedIdSet.has(id))
-    const subSignupById = new Map(occurrence.subSignups.map((signup) => [signup.id, signup]))
+    const activeSignups = occurrence.subSignups.filter(
+      (signup) => signup.status === 'ACTIVE' || signup.status === 'SELECTED'
+    )
+    const activeSignupById = new Map(
+      activeSignups.map((signup) => [signup.id, signup])
+    )
+    const selection = computeSubSelection({
+      sessionDurationMinutes,
+      sessionCapacity: occurrence.session.capacity ?? 0,
+      registrationClosed: isRegistrationClosed,
+      registrations: occurrence.registrations.map((registration) => ({
+        id: registration.id,
+        createdAt: registration.createdAt,
+        playMode: registration.playMode,
+        playSegmentSide: registration.playSegmentSide,
+        playMinutes: registration.playMinutes
+      })),
+      signups: activeSignups.map((signup) => ({
+        id: signup.id,
+        userId: signup.userId,
+        status: signup.status === 'SELECTED' ? 'SELECTED' : 'ACTIVE',
+        availabilityMode: signup.availabilityMode,
+        availabilitySegmentSide: signup.availabilitySegmentSide,
+        availabilityMinutes: signup.availabilityMinutes,
+        partialLocked: signup.partialLocked,
+        signedUpAt: signup.signedUpAt,
+        selectionType: signup.selectionType,
+        assignedStartOffsetMinutes: signup.assignedStartOffsetMinutes,
+        assignedEndOffsetMinutes: signup.assignedEndOffsetMinutes
+      }))
+    })
+
+    const subSignupById = new Map(activeSignups.map((signup) => [signup.id, signup]))
     const subSelectedNotifications: {
       userId: string
       occurrenceId: string
@@ -57,6 +99,7 @@ export class SubSelectionService {
       kind: 'SUB_SELECTED'
       payload: { subSignupId: string }
     }[] = []
+
     const subStatusChangedNotifications: {
       userId: string
       occurrenceId: string
@@ -68,7 +111,7 @@ export class SubSelectionService {
       payload: { subSignupId: string }
     }[] = []
 
-    for (const subSignupId of newlySelectedIds) {
+    for (const subSignupId of selection.newlySelectedIds) {
       const signup = subSignupById.get(subSignupId)
       if (!signup) {
         continue
@@ -86,7 +129,7 @@ export class SubSelectionService {
       })
     }
 
-    for (const subSignupId of replacedIds) {
+    for (const subSignupId of selection.deselectedIds) {
       const signup = subSignupById.get(subSignupId)
       if (!signup) {
         continue
@@ -107,38 +150,47 @@ export class SubSelectionService {
     const selectedAt = new Date()
 
     await prisma.$transaction(async (tx) => {
-      if (newlySelectedIds.length > 0) {
-        await tx.subSignup.updateMany({
-          where: { id: { in: newlySelectedIds } },
+      for (const signup of selection.activeSignups) {
+        const signupRecord = activeSignupById.get(signup.id)
+        if (!signupRecord) {
+          continue
+        }
+
+        const assignment = selection.assignmentsBySignupId.get(signup.id)
+        if (!assignment) {
+          await tx.subSignup.update({
+            where: { id: signup.id },
+            data: {
+              status: 'ACTIVE',
+              selectedAt: null,
+              selectionType: null,
+              assignedStartOffsetMinutes: null,
+              assignedEndOffsetMinutes: null,
+              partialLocked: false,
+              partialLockedAt: null
+            }
+          })
+          continue
+        }
+
+        const isFullSelection = assignment.selectionType === 'FULL'
+        await tx.subSignup.update({
+          where: { id: signup.id },
           data: {
             status: 'SELECTED',
-            selectedAt
+            selectedAt: signupRecord.selectedAt ?? selectedAt,
+            selectionType: assignment.selectionType,
+            assignedStartOffsetMinutes: assignment.segment.startOffsetMinutes,
+            assignedEndOffsetMinutes: assignment.segment.endOffsetMinutes,
+            partialLocked: isFullSelection ? false : signupRecord.partialLocked,
+            partialLockedAt: isFullSelection ? null : signupRecord.partialLockedAt
           }
         })
       }
 
-      if (overflowIds.length > 0) {
-        await tx.subSignup.updateMany({
-          where: { id: { in: overflowIds }, status: 'SELECTED' },
-          data: {
-            status: 'ACTIVE',
-            selectedAt: null
-          }
-        })
-      }
-
-      if (replacedIds.length > 0) {
-        await tx.subSignup.updateMany({
-          where: { id: { in: replacedIds } },
-          data: {
-            status: 'REPLACED'
-          }
-        })
-      }
-
-      for (let index = 0; index < activeSignups.length; index += 1) {
+      for (let index = 0; index < selection.activeSignups.length; index += 1) {
         await tx.subSignup.update({
-          where: { id: activeSignups[index].id },
+          where: { id: selection.activeSignups[index].id },
           data: { selectionRank: index + 1 }
         })
       }
@@ -159,10 +211,14 @@ export class SubSelectionService {
     logger.info(
       {
         occurrenceId,
-        openSlots,
-        selectedCount: selectedIds.length,
-        newlySelectedCount: newlySelectedIds.length,
-        replacedCount: replacedIds.length,
+        registrationClosed: isRegistrationClosed,
+        fullSlotsInitiallyOpen: selection.initialFullSlots,
+        pairedPartialCount: selection.pairedPartialCount,
+        remainingFullSlots: selection.remainingFullSlots,
+        remainingPartialSlotCount: selection.remainingPartialSlotCount,
+        selectedCount: selection.assignmentsBySignupId.size,
+        newlySelectedCount: selection.newlySelectedIds.length,
+        deselectedCount: selection.deselectedIds.length,
         subSelectedNotificationCount: subSelectedNotifications.length,
         subStatusChangedNotificationCount: subStatusChangedNotifications.length
       },
@@ -170,9 +226,9 @@ export class SubSelectionService {
     )
 
     return {
-      newlySelectedIds,
-      replacedIds,
-      stillActiveIds: overflowIds
+      newlySelectedIds: selection.newlySelectedIds,
+      replacedIds: selection.deselectedIds,
+      stillActiveIds: selection.stillActiveIds
     }
   }
 }
