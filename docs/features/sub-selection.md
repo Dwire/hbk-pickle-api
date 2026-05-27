@@ -20,14 +20,14 @@
 ## Data Flow
 
 - Registered attendees are normalized into edge-aligned segments (`START`/`END`) in 15-minute blocks.
-- Non-overlapping registered partial attendees are auto-paired (deterministic max-cardinality START/END matching), reducing effective occupied slots before sub selection.
+- Non-overlapping registered partial attendees are auto-paired only when both segments provide at least 30 minutes (deterministic max-cardinality START/END matching), reducing effective occupied slots before sub selection.
 - Pairing objective is currently pair-count only (not dead-time minimization) so weighted/coverage optimization can be added later without changing external APIs.
 - Full-slot availability is computed as `capacity - effectiveRegisteredOccupiedSlots`.
-- Unpaired registered partial attendees create partial slots that subs can fill.
+- Unpaired registered partial attendees create partial slots that subs can fill only when the available segment is at least 30 minutes.
 - Selected locked partial subs are preserved first when their exact segment still exists.
 - Remaining selected subs are re-fit before non-selected queue users so selected users remain selected whenever compatible capacity exists.
 - Queue assignment behavior:
   - `FULL_ONLY`: full slots only.
   - `FLEX`: full slots first, partial slots second.
-  - `PARTIAL_ONLY`: matching partial slots first; if none, consume a full slot as a partial assignment and emit the complementary partial slot for downstream queue users.
+  - `PARTIAL_ONLY`: matching partial slots first; if none, consume a full slot as a partial assignment and emit the complementary partial slot for downstream queue users only when that complementary slot is at least 30 minutes.
 - Selection recalculation remains backend-driven via post-close mutation-triggered rebalance and scheduler/worker ticks.

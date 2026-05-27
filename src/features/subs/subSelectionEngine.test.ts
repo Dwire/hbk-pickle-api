@@ -18,6 +18,7 @@ import {
 } from './subSelectionEngine.js'
 
 const baseTime = new Date('2026-05-24T12:00:00.000Z')
+const minimumPairableMinutes = 30
 
 const atSeconds = (seconds: number): Date =>
   new Date(baseTime.getTime() + seconds * 1000)
@@ -144,6 +145,55 @@ test('PARTIAL_ONLY can consume a full slot and open complementary partial availa
     startOffsetMinutes: 45,
     endOffsetMinutes: 120
   })
+})
+
+test('does not auto-select into residual attendee gaps below 30 minutes', () => {
+  const result = computeSubSelection({
+    sessionDurationMinutes: 120,
+    sessionCapacity: 1,
+    registrationClosed: true,
+    registrations: [
+      registration('reg-1', {
+        createdAtSeconds: 1,
+        playMode: 'PARTIAL',
+        side: 'START',
+        minutes: 105
+      })
+    ],
+    signups: [
+      signup('sub-1', { signedUpAtSeconds: 1, mode: 'FLEX' }),
+      signup('sub-2', { signedUpAtSeconds: 2, mode: 'PARTIAL_ONLY', side: 'END', minutes: 15 })
+    ]
+  })
+
+  assert.equal(result.assignmentsBySignupId.has('sub-1'), false)
+  assert.equal(result.assignmentsBySignupId.has('sub-2'), false)
+})
+
+test('PARTIAL_ONLY does not emit complementary partial slots below 30 minutes', () => {
+  const result = computeSubSelection({
+    sessionDurationMinutes: 120,
+    sessionCapacity: 1,
+    registrationClosed: true,
+    registrations: [],
+    signups: [
+      signup('sub-short', {
+        signedUpAtSeconds: 1,
+        mode: 'PARTIAL_ONLY',
+        side: 'START',
+        minutes: 105
+      }),
+      signup('sub-next', {
+        signedUpAtSeconds: 2,
+        mode: 'FLEX',
+        side: 'END',
+        minutes: minimumPairableMinutes
+      })
+    ]
+  })
+
+  assert.equal(result.assignmentsBySignupId.get('sub-short')?.selectionType, 'PARTIAL')
+  assert.equal(result.assignmentsBySignupId.has('sub-next'), false)
 })
 
 test('selected FLEX sub is promoted to full when a full slot opens and next sub takes partial slot', () => {

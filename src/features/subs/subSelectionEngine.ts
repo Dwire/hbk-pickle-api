@@ -8,6 +8,7 @@ import {
   buildRegistrationOwnSegment,
   calculateEffectiveRegisteredOccupancy,
   isValidPartialMinutes,
+  minimumPairablePlayMinutes,
   type PartialSlot,
   type RegistrationCoverageInput,
   segmentsMatch,
@@ -88,6 +89,7 @@ const resolveAvailabilitySegment = (
   if (
     side === null ||
     minutes === null ||
+    minutes < minimumPairablePlayMinutes ||
     !isValidPartialMinutes(minutes, sessionDurationMinutes)
   ) {
     return null
@@ -117,7 +119,7 @@ const buildComplementaryPartialSlot = (
     assignedSegment.endOffsetMinutes < sessionDurationMinutes
   ) {
     const minutes = sessionDurationMinutes - assignedSegment.endOffsetMinutes
-    if (minutes <= 0) {
+    if (minutes < minimumPairablePlayMinutes) {
       return null
     }
 
@@ -137,7 +139,7 @@ const buildComplementaryPartialSlot = (
     assignedSegment.startOffsetMinutes > fullSegmentStartOffsetMinutes
   ) {
     const minutes = assignedSegment.startOffsetMinutes
-    if (minutes <= 0) {
+    if (minutes < minimumPairablePlayMinutes) {
       return null
     }
 
@@ -224,8 +226,10 @@ const assignMatchingPartialSlot = (
   assignmentsBySignupId: Map<string, SelectionAssignment>,
   sessionDurationMinutes: number
 ): boolean => {
-  const candidateIndex = resources.remainingPartialSlots.findIndex((slot) =>
-    matchesPartialPreference(signup, slot, sessionDurationMinutes)
+  const candidateIndex = resources.remainingPartialSlots.findIndex(
+    (slot) =>
+      slot.minutes >= minimumPairablePlayMinutes &&
+      matchesPartialPreference(signup, slot, sessionDurationMinutes)
   )
   if (candidateIndex === -1) {
     return false
@@ -349,7 +353,9 @@ export const computeSubSelection = (
   )
   const resources: SelectionResources = {
     remainingFullSlots: initialFullSlots,
-    remainingPartialSlots: [...registrationOccupancy.unpairedPartialSlots]
+    remainingPartialSlots: registrationOccupancy.unpairedPartialSlots.filter(
+      (slot) => slot.minutes >= minimumPairablePlayMinutes
+    )
   }
   const assignmentsBySignupId = new Map<string, SelectionAssignment>()
 

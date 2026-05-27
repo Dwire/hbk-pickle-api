@@ -60,7 +60,7 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - Registration windows open 10am ET day before and close at 7pm ET day before; sub signups remain open until the session ends (Eastern rules applied to UTC instants)
 - Register/sub mutations require `LeagueMembership.ACTIVE` and reject attempts for canceled occurrences
 - `sessionOccurrenceDetail` capability flags (`canRegister`, `canSub`) require `LeagueMembership.ACTIVE` to match mutation enforcement
-- `sessionOccurrenceDetail.attendees/subs` rows include optional `splitPartner` (`id`, `displayName`, `profileImageUrl`) for backend-authored deterministic non-overlap split display metadata aligned with effective occupancy pairing
+- `sessionOccurrenceDetail.attendees/subs` rows include optional `splitPartner` (`id`, `displayName`, `profileImageUrl`) for backend-authored deterministic non-overlap split display metadata aligned with effective occupancy pairing (30-minute minimum per paired segment)
 - Scheduler ticks enqueue Bull sub-selection jobs from registration close through occurrence end; sub-selection worker recomputes selection and sends push notifications only for selection state changes
 - Scheduler tick runs demo-org active-league autofill during open registration windows: query scope is bounded to next-day Eastern occurrences, zero-attendee occurrences auto-register assigned users to a randomized 50%-80% capacity target, and failures log diagnostic context while adding at most one sub per tick with an 8-sub (`ACTIVE` + `SELECTED`) cap
 - Scheduler tick also cleans up expired, unused profile-photo upload intents and attempts provider-side orphan deletion
@@ -71,7 +71,7 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - sessionsWeek subCount reflects ACTIVE + SELECTED sub signups (canceled/replaced excluded)
 - Sub ordering uses signup queue time (`signedUpAt`); cancel + re-sub places the user at the end of the sub list
 - Partial attendance/sub preferences use 15-minute blocks (`START`/`END` + minutes)
-- Sub selection auto-pairs non-overlapping registered partial attendees, preserves selected subs when compatible capacity remains, and applies mode-aware queue behavior (`FULL_ONLY`, `FLEX`, `PARTIAL_ONLY`)
+- Sub selection auto-pairs non-overlapping registered partial attendees when each paired segment is at least 30 minutes, preserves selected subs when compatible capacity remains, and applies mode-aware queue behavior (`FULL_ONLY`, `FLEX`, `PARTIAL_ONLY`)
 - sessionsWeek attendingCount reflects ATTENDING registrations only (canceled/declined excluded)
 - sessionsWeek returns `registeredUsers` and `subUsers` participant objects (`id`, `displayName`, `profileImageUrl`) for ATTENDING registrations and ACTIVE/SELECTED sub signups
 - Member `league`, `rules`, and `sessionsWeek` queries require `organizationId`, support optional `leagueId`, and enforce that explicit league ids belong to the provided organization

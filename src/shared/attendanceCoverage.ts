@@ -1,6 +1,7 @@
 import type { PlaySegmentSide, RegistrationPlayMode } from '../generated/prisma/client.js'
 
 export const partialMinutesBlockSize = 15
+export const minimumPairablePlayMinutes = 30
 const millisecondsPerMinute = 60_000
 
 export type TimeSegment = {
@@ -126,7 +127,7 @@ export const buildRegistrationGapSlot = (
 
   const playMinutes = registration.playMinutes as number
   const gapMinutes = sessionDurationMinutes - playMinutes
-  if (gapMinutes <= 0) {
+  if (gapMinutes < minimumPairablePlayMinutes) {
     return null
   }
 
@@ -200,10 +201,14 @@ export const matchEdgeAlignedPartials = (
   sessionDurationMinutes: number
 ): MatchedPartialPair[] => {
   const startCandidates = candidates.filter(
-    (candidate) => candidate.side === 'START'
+    (candidate) =>
+      candidate.side === 'START' &&
+      candidate.minutes >= minimumPairablePlayMinutes
   )
   const endCandidates = candidates.filter(
-    (candidate) => candidate.side === 'END'
+    (candidate) =>
+      candidate.side === 'END' &&
+      candidate.minutes >= minimumPairablePlayMinutes
   )
   const sortedStarts = [...startCandidates].sort(byCreatedAtThenId)
   const sortedEnds = [...endCandidates].sort(byCreatedAtThenId)
@@ -297,6 +302,7 @@ export const calculateEffectiveRegisteredOccupancy = (
       registration.gap !== null &&
       registration.playSide !== null &&
       registration.playMinutes !== null &&
+      registration.playMinutes >= minimumPairablePlayMinutes &&
       isValidPartialMinutes(registration.playMinutes, sessionDurationMinutes)
     if (!validPartial) {
       continue

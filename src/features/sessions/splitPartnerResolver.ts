@@ -1,6 +1,7 @@
 import type { PlaySegmentSide } from '../../generated/prisma/client.js'
 import {
   matchEdgeAlignedPartials,
+  minimumPairablePlayMinutes,
   segmentsOverlap
 } from '../../shared/attendanceCoverage.js'
 
@@ -55,6 +56,8 @@ const isValidSegment = (
   Number.isInteger(candidate.startOffsetMinutes) &&
   Number.isInteger(candidate.endOffsetMinutes) &&
   candidate.startOffsetMinutes >= 0 &&
+  candidate.endOffsetMinutes - candidate.startOffsetMinutes >=
+    minimumPairablePlayMinutes &&
   candidate.endOffsetMinutes > candidate.startOffsetMinutes &&
   candidate.endOffsetMinutes <= sessionDurationMinutes
 

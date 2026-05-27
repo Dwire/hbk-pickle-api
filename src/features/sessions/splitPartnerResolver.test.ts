@@ -119,6 +119,17 @@ test('pairs non-overlapping rows even when combined coverage has dead time', () 
   assert.equal(splitPartnerMap.get('sub-1')?.id, 'user-att-1')
 })
 
+test('does not pair rows when either side has less than 30 minutes', () => {
+  const splitPartnerMap = resolveSplitPartnerMap({
+    sessionDurationMinutes: 120,
+    attendeeCandidates: [attendee('att-1', 0, 15, 1)],
+    subCandidates: [sub('sub-1', 60, 120, 1)]
+  })
+
+  assert.equal(splitPartnerMap.has('att-1'), false)
+  assert.equal(splitPartnerMap.has('sub-1'), false)
+})
+
 test('returns no split partners when there are no partial candidates (full rows)', () => {
   const splitPartnerMap = resolveSplitPartnerMap({
     sessionDurationMinutes: 120,
