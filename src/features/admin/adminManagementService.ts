@@ -215,6 +215,7 @@ export type AdminAttendanceConfirmation = {
 }
 
 export type AdminOccurrenceRosterEntry = {
+  id: string
   user: {
     id: string
     phoneNumber: string
@@ -1160,6 +1161,7 @@ export class AdminManagementService {
     }
 
     const attendees = occurrence.registrations.map((registration) => ({
+      id: registration.id,
       user: {
         id: registration.user.id,
         phoneNumber: registration.user.phoneNumber,
@@ -1172,6 +1174,7 @@ export class AdminManagementService {
     }))
 
     const subs = occurrence.subSignups.map((subSignup) => ({
+      id: subSignup.id,
       user: {
         id: subSignup.user.id,
         phoneNumber: subSignup.user.phoneNumber,

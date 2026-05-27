@@ -44,6 +44,7 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - Admin direct status control mutations for registrations and sub signups, gated by `LeagueMembership.ACTIVE`
 - Admin attendance confirmation mutations (`adminSetAttendanceConfirmation`, `adminSetAttendanceConfirmations`) for occurrence roster users (attendees + subs, any status)
 - `adminOccurrenceRoster` includes canonical attendance confirmation state (`attendanceConfirmations`, `confirmedCount`, `unconfirmedCount`) independent from registration/sub status
+- `adminOccurrenceRoster.attendees` and `.subs` return stable non-null roster entry ids aligned with `SessionRosterEntry.id`
 - Admin league rules mutations for league-scoped upsert and template-copy workflows
 - Phone-based slot assignment that creates placeholder users (`isOnApp = false`) until onboarding completion and auto-activates league membership
 - League lifecycle via `LeagueStatus` (`DRAFT`, `UPCOMING`, `ACTIVE`, `ARCHIVED`) with one `ACTIVE` league enforced per organization
