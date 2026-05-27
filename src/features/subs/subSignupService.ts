@@ -23,6 +23,17 @@ export type SetSubAvailabilityPreferenceInput = {
   minutes?: number | null
 }
 
+type SignupOptions = {
+  triggerRebalance?: boolean
+}
+
+type RebalanceEligibleOccurrence = {
+  id: string
+  startsAt: Date
+  endsAt: Date
+  status: 'ACTIVE' | 'CANCELED'
+}
+
 /**
  * SubSignupService
  * - Creates or reactivates sub signups for sessions.
@@ -31,7 +42,18 @@ export type SetSubAvailabilityPreferenceInput = {
  * - Used by sub signup mutations.
  */
 export class SubSignupService {
-  public async signup(userId: string, occurrenceId: string) {
+  protected shouldTriggerRebalance(
+    occurrence: RebalanceEligibleOccurrence,
+    now: Date = new Date()
+  ): boolean {
+    return shouldRebalanceSubSelection(occurrence, now)
+  }
+
+  protected async rebalanceOccurrence(occurrenceId: string): Promise<void> {
+    await rebalanceSubSelection(occurrenceId)
+  }
+
+  public async signup(userId: string, occurrenceId: string, options?: SignupOptions) {
     const errorOccurrenceMissing = 'Session occurrence missing'
     const occurrence = await prisma.sessionOccurrence.findUnique({
       where: { id: occurrenceId },
@@ -174,8 +196,9 @@ export class SubSignupService {
 
     logger.info({ occurrenceId, userId }, logUserSignedUpAsSub)
 
-    if (shouldRebalanceSubSelection(occurrence, now)) {
-      await rebalanceSubSelection(occurrence.id)
+    const shouldTriggerRebalance = options?.triggerRebalance ?? true
+    if (shouldTriggerRebalance && this.shouldTriggerRebalance(occurrence, now)) {
+      await this.rebalanceOccurrence(occurrence.id)
     }
 
     return subSignup
@@ -204,8 +227,8 @@ export class SubSignupService {
     })
 
     logger.info({ occurrenceId, userId }, logUserCanceledSubSignup)
-    if (shouldRebalanceSubSelection(occurrence)) {
-      await rebalanceSubSelection(occurrence.id)
+    if (this.shouldTriggerRebalance(occurrence)) {
+      await this.rebalanceOccurrence(occurrence.id)
     }
     return subSignup
   }
@@ -281,7 +304,7 @@ export class SubSignupService {
     })
     const ensuredSignup =
       !existingSignup || existingSignup.status === subSignupStatusCanceled
-        ? await this.signup(userId, occurrenceId)
+        ? await this.signup(userId, occurrenceId, { triggerRebalance: false })
         : existingSignup
 
     const updatedSignup = await prisma.subSignup.update({
@@ -296,8 +319,8 @@ export class SubSignupService {
       }
     })
 
-    if (shouldRebalanceSubSelection(occurrence, now)) {
-      await rebalanceSubSelection(occurrence.id)
+    if (this.shouldTriggerRebalance(occurrence, now)) {
+      await this.rebalanceOccurrence(occurrence.id)
     }
 
     return updatedSignup
@@ -341,8 +364,8 @@ export class SubSignupService {
       }
     })
 
-    if (shouldRebalanceSubSelection(occurrence, now)) {
-      await rebalanceSubSelection(occurrence.id)
+    if (this.shouldTriggerRebalance(occurrence, now)) {
+      await this.rebalanceOccurrence(occurrence.id)
     }
 
     return updatedSignup
