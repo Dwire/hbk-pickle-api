@@ -20,5 +20,6 @@
 - Upsert registration record per occurrence with ATTENDING or CANCELED.
 - Require `LeagueMembership.status = ACTIVE` for the occurrence league.
 - Registration attempts are rejected when the target occurrence status is `CANCELED`.
-- Post-close registration updates can reduce playtime (`FULL -> PARTIAL`) but cannot increase playtime.
+- At or after registration close, registration updates can keep or reduce effective playtime but cannot increase it.
+- Post-close playtime extension attempts fail with GraphQL `BAD_USER_INPUT` and reason `REGISTRATION_WINDOW_CLOSED_EXTENSION_NOT_ALLOWED`.
 - `fillTargetRegistrationId` is retained in the API shape for compatibility but ignored server-side by selection logic.

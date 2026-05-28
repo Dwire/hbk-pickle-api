@@ -22,6 +22,7 @@
 - Require `LeagueMembership.status = ACTIVE` for the occurrence league before allowing signup.
 - Sub signup attempts are rejected when the target occurrence status is `CANCELED`.
 - Keep sub signup assignment-agnostic while enforcing same-day attendance and same-day sub constraints.
+- Sub signup for the same occurrence is rejected when the caller already has `ATTENDING` registration, with GraphQL `BAD_USER_INPUT` reason `REGISTRATION_ALREADY_ACTIVE`.
 - Store sub queue position with `signedUpAt`; re-signing after cancel resets `signedUpAt` so players move to the end.
 - Partial availability preferences use 15-minute blocks (`START`/`END` + minutes less than session duration).
 - After registration closes, scheduler ticks enqueue sub-selection jobs through session end so ACTIVE signups can move into SELECTED as the list changes.

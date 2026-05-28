@@ -1,3 +1,5 @@
+import { GraphQLError } from 'graphql'
+
 import type { PlaySegmentSide, SubAvailabilityMode } from '../../generated/prisma/client.js'
 import { prisma } from '../../shared/prisma.js'
 import { logger } from '../../shared/logger.js'
@@ -16,6 +18,8 @@ const subSignupStatusSelected = 'SELECTED'
 const subSignupStatusCanceled = 'CANCELED'
 const occurrenceStatusCanceled = 'CANCELED'
 const leagueMembershipStatusActive = 'ACTIVE'
+const graphQLErrorCodeBadUserInput = 'BAD_USER_INPUT'
+const registrationAlreadyActiveReason = 'REGISTRATION_ALREADY_ACTIVE'
 
 export type SetSubAvailabilityPreferenceInput = {
   availabilityMode: SubAvailabilityMode
@@ -115,10 +119,20 @@ export class SubSignupService {
     logger.info({ occurrenceId, userId, isUserAssignedToSession }, logResolvedSubSignupAssignmentStatus)
 
     const { start, end } = getEasternDayRangeUtc(occurrence.startsAt)
+    const existingRegistrationForOccurrence = await prisma.sessionRegistration.findUnique({
+      where: { userId_occurrenceId: { userId, occurrenceId } },
+      select: { status: true }
+    })
+    const hasActiveRegistrationForOccurrence =
+      existingRegistrationForOccurrence?.status === 'ATTENDING'
+
     const existingRegistration = await prisma.sessionRegistration.findFirst({
       where: {
         userId,
         status: 'ATTENDING',
+        occurrenceId: {
+          not: occurrenceId
+        },
         occurrence: {
           startsAt: { gte: start, lte: end }
         }
@@ -140,12 +154,22 @@ export class SubSignupService {
         occurrenceId,
         userId,
         isUserAssignedToSession,
-        hasSameDayRegistration: Boolean(existingRegistration),
+        hasSameDayRegistration:
+          hasActiveRegistrationForOccurrence || Boolean(existingRegistration),
         hasSameDaySubSignup: Boolean(existingSubSignup),
         existingSubSignupOccurrenceId: existingSubSignup?.occurrenceId ?? null
       },
       logResolvedSubSignupEligibility
     )
+
+    if (hasActiveRegistrationForOccurrence) {
+      throw new GraphQLError('Registration already active for this occurrence', {
+        extensions: {
+          code: graphQLErrorCodeBadUserInput,
+          reason: registrationAlreadyActiveReason
+        }
+      })
+    }
 
     if (existingRegistration) {
       logger.warn({ occurrenceId, userId }, logSubSignupSameDayRegistration)
