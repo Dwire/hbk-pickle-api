@@ -1,3 +1,5 @@
+import { GraphQLError } from 'graphql'
+
 import type { PlaySegmentSide, RegistrationPlayMode } from '../../generated/prisma/client.js'
 import { prisma } from '../../shared/prisma.js'
 import { logger } from '../../shared/logger.js'
@@ -13,6 +15,9 @@ import { rebalanceSubSelection, shouldRebalanceSubSelection } from '../subs/subS
 
 const occurrenceStatusCanceled = 'CANCELED'
 const leagueMembershipStatusActive = 'ACTIVE'
+const graphQLErrorCodeBadUserInput = 'BAD_USER_INPUT'
+const registrationWindowClosedExtensionNotAllowedReason =
+  'REGISTRATION_WINDOW_CLOSED_EXTENSION_NOT_ALLOWED'
 
 type TimeSegment = {
   startOffsetMinutes: number
@@ -43,6 +48,21 @@ const buildOwnSegment = (
  * - Used by registration mutations.
  */
 export class RegistrationService {
+  protected shouldTriggerRebalance(
+    occurrence: {
+      startsAt: Date
+      endsAt: Date
+      status: 'ACTIVE' | 'CANCELED'
+    },
+    now: Date = new Date()
+  ): boolean {
+    return shouldRebalanceSubSelection(occurrence, now)
+  }
+
+  protected async rebalanceOccurrence(occurrenceId: string): Promise<void> {
+    await rebalanceSubSelection(occurrenceId)
+  }
+
   public async register(userId: string, occurrenceId: string) {
     const occurrence = await prisma.sessionOccurrence.findUnique({
       where: { id: occurrenceId },
@@ -219,8 +239,16 @@ export class RegistrationService {
     const nextOwnSegment = buildOwnSegment(nextMode, nextSide, nextMinutes, sessionDurationMinutes)
     const nextOwnMinutes = nextOwnSegment.endOffsetMinutes - nextOwnSegment.startOffsetMinutes
 
-    if (now > registrationCloseAt && nextOwnMinutes > currentOwnMinutes) {
-      throw new Error('Cannot increase registered play time after registration closes')
+    if (now >= registrationCloseAt && nextOwnMinutes > currentOwnMinutes) {
+      throw new GraphQLError(
+        'Cannot increase registered play time after registration closes',
+        {
+          extensions: {
+            code: graphQLErrorCodeBadUserInput,
+            reason: registrationWindowClosedExtensionNotAllowedReason
+          }
+        }
+      )
     }
 
     const updatedRegistration = await prisma.sessionRegistration.update({
@@ -233,8 +261,8 @@ export class RegistrationService {
       }
     })
 
-    if (shouldRebalanceSubSelection(occurrence, now)) {
-      await rebalanceSubSelection(occurrence.id)
+    if (this.shouldTriggerRebalance(occurrence, now)) {
+      await this.rebalanceOccurrence(occurrence.id)
     }
 
     return updatedRegistration
