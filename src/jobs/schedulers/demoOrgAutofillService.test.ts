@@ -138,8 +138,8 @@ test('autofillSubs excludes users already on app and still signs up eligible use
   const offAppUserId = 'off-app-user'
   const onAppUserId = 'on-app-user'
   const leagueMembers = [
-    { userId: offAppUserId, isOnApp: false },
-    { userId: onAppUserId, isOnApp: true }
+    { userId: onAppUserId, isOnApp: true },
+    { userId: offAppUserId, isOnApp: false }
   ]
 
   const subSignupDelegate = prisma.subSignup as unknown as {
@@ -224,6 +224,7 @@ test('autofillSubs excludes users already on app and still signs up eligible use
   try {
     const outcome = await privateMethods.autofillSubs(baseOccurrence)
     assert.deepEqual(signedUpUserIds, [offAppUserId])
+    assert.equal(signedUpUserIds.includes(onAppUserId), false)
     assert.equal(outcome.attemptedCount, 1)
     assert.equal(outcome.succeededCount, 1)
     assert.equal(outcome.failedCount, 0)
