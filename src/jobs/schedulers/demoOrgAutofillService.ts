@@ -279,7 +279,10 @@ export class DemoOrgAutofillService {
     const assignmentCandidates = await prisma.slotAssignment.findMany({
       where: {
         leagueId: occurrence.session.leagueId,
-        sessionId: occurrence.sessionId
+        sessionId: occurrence.sessionId,
+        user: {
+          isOnApp: false
+        }
       },
       select: {
         userId: true
@@ -412,7 +415,10 @@ export class DemoOrgAutofillService {
       prisma.leagueMembership.findMany({
         where: {
           leagueId: occurrence.session.leagueId,
-          status: leagueMembershipStatusActive
+          status: leagueMembershipStatusActive,
+          user: {
+            isOnApp: false
+          }
         },
         select: {
           userId: true
