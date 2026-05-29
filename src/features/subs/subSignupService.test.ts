@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict'
-import test from 'node:test'
+import test, { after } from 'node:test'
 
 import { GraphQLError } from 'graphql'
 
@@ -69,6 +69,12 @@ const activeOccurrence = {
   sessionId: 'session-1'
 }
 
+after(async () => {
+  await notificationQueue.close()
+  await subSelectionQueue.close()
+  await prisma.$disconnect()
+})
+
 test('setAvailabilityPreference triggers one rebalance when ensuring signup first', async (t) => {
   const service = new TestableSubSignupService()
   const startsAt = new Date(startsAtIso)
@@ -117,9 +123,6 @@ test('setAvailabilityPreference triggers one rebalance when ensuring signup firs
     sessionOccurrenceDelegate.findUnique = originalOccurrenceFindUnique
     subSignupDelegate.findUnique = originalSubSignupFindUnique
     subSignupDelegate.update = originalSubSignupUpdate
-    await notificationQueue.close()
-    await subSelectionQueue.close()
-    await prisma.$disconnect()
   })
 
   const result = await service.setAvailabilityPreference(userId, occurrenceId, {
@@ -168,11 +171,12 @@ test('signup fails with BAD_USER_INPUT reason when active registration already e
   leagueMembershipDelegate.findUnique = async () => ({ status: 'ACTIVE' })
   slotAssignmentDelegate.findUnique = async () => null
   registrationDelegate.findUnique = async () => ({ status: 'ATTENDING' })
-  registrationDelegate.findFirst = async () => ({
-    id: 'reg-1',
-    occurrenceId
-  })
-  subSignupDelegate.findFirst = async () => null
+  registrationDelegate.findFirst = async () => {
+    throw new Error('Expected same-day registration query to be skipped')
+  }
+  subSignupDelegate.findFirst = async () => {
+    throw new Error('Expected same-day sub-signup query to be skipped')
+  }
 
   t.after(() => {
     sessionServicePrototype.isWithinSubSignupWindow = originalIsWithinSubSignupWindow

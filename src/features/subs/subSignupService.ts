@@ -126,6 +126,26 @@ export class SubSignupService {
     const hasActiveRegistrationForOccurrence =
       existingRegistrationForOccurrence?.status === 'ATTENDING'
 
+    if (hasActiveRegistrationForOccurrence) {
+      logger.info(
+        {
+          occurrenceId,
+          userId,
+          isUserAssignedToSession,
+          hasSameDayRegistration: true,
+          hasSameDaySubSignup: false,
+          existingSubSignupOccurrenceId: null
+        },
+        logResolvedSubSignupEligibility
+      )
+      throw new GraphQLError('Registration already active for this occurrence', {
+        extensions: {
+          code: graphQLErrorCodeBadUserInput,
+          reason: registrationAlreadyActiveReason
+        }
+      })
+    }
+
     const existingRegistration = await prisma.sessionRegistration.findFirst({
       where: {
         userId,
@@ -161,15 +181,6 @@ export class SubSignupService {
       },
       logResolvedSubSignupEligibility
     )
-
-    if (hasActiveRegistrationForOccurrence) {
-      throw new GraphQLError('Registration already active for this occurrence', {
-        extensions: {
-          code: graphQLErrorCodeBadUserInput,
-          reason: registrationAlreadyActiveReason
-        }
-      })
-    }
 
     if (existingRegistration) {
       logger.warn({ occurrenceId, userId }, logSubSignupSameDayRegistration)
