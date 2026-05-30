@@ -12,6 +12,7 @@
 		"test": "pnpm exec tsx --test \"src/**/*.test.ts\"",
 		"prisma": "prisma",
 		"start": "node dist/app/server.js",
+		"jobs": "pnpm exec tsx src/jobs/jobsProcess.ts",
 		"scheduler:tick": "pnpm exec tsx src/jobs/schedulers/registrationTick.ts",
 		"scheduler:loop": "pnpm exec tsx src/jobs/schedulers/registrationTicker.ts",
 		"worker:notifications": "pnpm exec tsx src/jobs/notificationWorker.ts",
