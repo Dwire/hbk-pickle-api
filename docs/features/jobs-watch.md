@@ -2,7 +2,7 @@
 
 ## Purpose
 
-- Provide one local command that runs background workers and scheduler ticks together with readable per-process logs.
+- Document local commands for production-style jobs execution and readable multi-process job monitoring.
 
 ## Core API
 
@@ -22,7 +22,13 @@
 
 ## Data Flow
 
+### `just jobs`
+
 - `just jobs` mirrors production by starting both BullMQ workers and the scheduler loop in one Node process.
+- The process logs notification worker, sub-selection worker, and scheduler failures with source-specific messages.
+
+### `just jobs-watch`
+
 - Starts `worker-notifications` and `worker-sub-selection` concurrently.
 - Runs `scheduler-tick` in a loop using the configured interval.
 - Every tick includes demo-org active-league autofill during open registration windows.
