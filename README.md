@@ -6,7 +6,7 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 
 - Node.js + TypeScript, GraphQL-first API
 - PostgreSQL via Prisma for core data
-- Redis for caching and BullMQ for background jobs
+- Redis for BullMQ background job coordination
 - Cloudflare Images for profile photo uploads and CDN delivery
 - Twilio Verify for phone-based authentication
 - Firebase Cloud Messaging for push notifications
@@ -64,7 +64,7 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - Registration play-preference updates at/after registration close cannot widen effective minutes and fail with GraphQL `BAD_USER_INPUT` reason `REGISTRATION_WINDOW_CLOSED_EXTENSION_NOT_ALLOWED`
 - `sessionOccurrenceDetail` capability flags (`canRegister`, `canSub`) require `LeagueMembership.ACTIVE` to match mutation enforcement
 - `sessionOccurrenceDetail.attendees/subs` rows include optional `splitPartner` (`id`, `displayName`, `profileImageUrl`) for backend-authored deterministic non-overlap split display metadata aligned with effective occupancy pairing (30-minute minimum per paired segment)
-- Scheduler ticks enqueue Bull sub-selection jobs from registration close through occurrence end; sub-selection worker recomputes selection and sends push notifications only for selection state changes
+- Scheduler ticks enqueue Bull sub-selection jobs from registration close through occurrence end; the combined jobs process runs scheduler, sub-selection, and notification delivery workers
 - Scheduler tick runs demo-org active-league autofill during open registration windows: query scope is bounded to next-day Eastern occurrences, zero-attendee occurrences auto-register assigned users with `isOnApp = false` to a randomized 50%-80% capacity target, and failures log diagnostic context while adding at most one `isOnApp = false` sub per tick with an 8-sub (`ACTIVE` + `SELECTED`) cap
 - Scheduler tick also cleans up expired, unused profile-photo upload intents and attempts provider-side orphan deletion
 - Reminder scheduler queues registration-close/session-start notifications only at or after warning time, batches attendee/device lookups, dedupes once per `(userId, occurrenceId, kind)`, and retries enqueueing existing `PENDING` reminders that were never dispatched
@@ -80,8 +80,8 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - Member `league`, `rules`, and `sessionsWeek` queries require `organizationId`, support optional `leagueId`, and enforce that explicit league ids belong to the provided organization
 - Notification scheduling and delivery
 - Debuggable backend runtime via `just run-debug` / `just run-debug-brk` (Node inspector + auto-reload)
-- Combined job monitor via `just jobs-watch` (both workers + repeating scheduler tick in one terminal)
-- Fly.io production deployment with dedicated process groups for API, workers, and scheduler plus pre-deploy Prisma migrations
+- Combined production-style jobs process via `just jobs`, plus local readable process monitor via `just jobs-watch`
+- Fly.io production deployment with API and combined jobs process groups plus pre-deploy Prisma migrations
 - Local seed data generation with full app-data wipe (guarded outside prod/staging unless explicit override envs are set), canonical orgs (`hbk-pickle`, `demo-org`), optional private owner users from `SEED_PRIVATE_USERS_JSON` (slotted into Thursday/Friday/Saturday sessions when present), deterministic generated seeded users, `Demo User` as a Thursday/Friday/Saturday player-only seed that replaces an active Demo Org slot with fallback across late-week sessions to preserve session capacity, and per-player transactional replacement writes that include slot assignment upsert plus `LeagueMembership(status=ACTIVE)` upsert, Demo Org leagues (2 archived + 1 active, 8/10/12 weeks), and one userless active HBK demo league on the same session/occurrence schedule
 
 ## Folder Structure
@@ -113,9 +113,10 @@ Backend service for the HBK Pickle check-in app. Provides GraphQL APIs for sessi
 - src/shared/phone.ts: E.164 phone normalization utility
 - src/shared/logger.ts: Pino logger wrapper
 - src/scripts/seed.ts: Full-wipe seed script for canonical orgs, optional private owner seed users (`SEED_PRIVATE_USERS_JSON`), and Demo Org league/user generation
+- src/jobs/jobsProcess.ts: Combined production entrypoint for notification worker, sub-selection worker, and scheduler loop
 - src/jobs/subSelectionWorker.ts: Bull worker for selection recalculation and sub selection notifications
 - src/jobs/schedulers/demoOrgAutofillService.ts: Demo-org scoped registration/sub autofill orchestration during open registration windows
-- src/jobs/schedulers/registrationTicker.ts: Long-running scheduler loop entrypoint for production background execution
+- src/jobs/schedulers/registrationTicker.ts: Importable long-running scheduler loop for production background execution
 - src/jobs/schedulers/runRegistrationTick.ts: Shared single-tick scheduler orchestration
 - src/integrations/cloudflare/cloudflareImagesClient.ts: Cloudflare direct-upload/create/details/delete API wrapper
 - src/integrations/cloudflare/profileImageUrl.ts: Delivery URL builder for configured avatar variant
@@ -205,13 +206,12 @@ Mutations (auth requires Twilio in production; stubbed locally).
 - For Postico/GUI DB access, run `just fly-mpg-proxy <cluster-id>` and connect to `127.0.0.1:16380`.
 - Fly process groups:
   - `api`: GraphQL server + `/healthz` endpoint for Fly checks
-  - `notifications`: Push notification worker
-  - `sub_selection`: Sub-selection worker
-  - `scheduler`: Continuous scheduler loop
+  - `jobs`: Push notification worker, sub-selection worker, and continuous scheduler loop
 - Rollback basics: use Fly release history to identify and revert to a known-good release, then re-check `/healthz` and worker logs.
 
 ### Local Jobs Monitoring
 
+- `just jobs`: Starts the production-style combined jobs process locally.
 - `just jobs-watch`: Starts notification worker, sub-selection worker, and reruns `scheduler-tick` every 30 seconds in a single terminal (`scheduler-tick` includes demo-org autofill).
 - `just jobs-watch 10`: Same flow but ticks every 10 seconds.
 - `jobs-watch` exits as soon as any worker/ticker child process exits, returns that child status, and stops the remaining child processes.

@@ -90,6 +90,12 @@ worker-notifications:
 worker-sub-selection:
 	pnpm worker:sub-selection
 
+# Run combined production-style jobs process locally (notifications, sub-selection, and scheduler loop).
+# Parameters: none.
+
+jobs:
+	pnpm jobs
+
 # Run both workers and repeatedly execute scheduler ticks (including demo-org autofill) in one terminal.
 # Parameters: `tick_seconds` (default: 30).
 
@@ -354,14 +360,22 @@ fly-secrets-import env_file=".env.fly":
 fly-deploy:
 	fly deploy
 
-# Scale process groups for production baseline (1 machine each).
+# Scale process groups for production baseline (1 API machine + 1 combined jobs machine).
 # Parameters: `app` (required app name), `region` (default: iad).
 
 fly-scale-prod app region="iad":
 	fly scale count 1 --app {{app}} --region {{region}} -g api
-	fly scale count 1 --app {{app}} --region {{region}} -g notifications
-	fly scale count 1 --app {{app}} --region {{region}} -g sub_selection
-	fly scale count 1 --app {{app}} --region {{region}} -g scheduler
+	fly scale count 1 --app {{app}} --region {{region}} -g jobs
+
+# Scale Fly to the cost-reduced baseline and stop legacy background process groups.
+# Parameters: `app` (required app name), `region` (default: iad).
+
+fly-scale-cost-baseline app region="iad":
+	fly scale count 1 --app {{app}} --region {{region}} -g api
+	fly scale count 1 --app {{app}} --region {{region}} -g jobs
+	fly scale count 0 --app {{app}} --region {{region}} -g notifications
+	fly scale count 0 --app {{app}} --region {{region}} -g sub_selection
+	fly scale count 0 --app {{app}} --region {{region}} -g scheduler
 
 # Show app status and current machine/process health.
 # Parameters: `app` (required app name).

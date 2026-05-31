@@ -18,9 +18,7 @@ primary_region = 'iad'
 
 [processes]
   api = 'node dist/app/server.js'
-  notifications = 'node dist/jobs/notificationWorker.js'
-  scheduler = 'node dist/jobs/schedulers/registrationTicker.js'
-  sub_selection = 'node dist/jobs/subSelectionWorker.js'
+  jobs = 'node dist/jobs/jobsProcess.js'
 
 [http_service]
   internal_port = 8080
