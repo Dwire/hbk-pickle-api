@@ -9,6 +9,7 @@
 
 - `api`: Serves GraphQL traffic and Fly HTTP health checks.
 - `jobs`: Runs the BullMQ notification worker, BullMQ sub-selection worker, and long-running scheduler loop in one machine.
+- API HTTP machines use Fly idle autostop (`auto_stop_machines = "stop"`, `min_machines_running = 0`) to reduce zero-traffic compute cost.
 - Fly release runs Prisma migrations before new machines roll out.
 
 ## Files and Responsibilities

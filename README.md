@@ -207,6 +207,7 @@ Mutations (auth requires Twilio in production; stubbed locally).
 - Fly process groups:
   - `api`: GraphQL server + `/healthz` endpoint for Fly checks
   - `jobs`: Push notification worker, sub-selection worker, and continuous scheduler loop
+- Fly API machines are configured for idle autostop (`auto_stop_machines='stop'`, `min_machines_running=0`) to reduce zero-traffic compute cost.
 - Rollback basics: use Fly release history to identify and revert to a known-good release, then re-check `/healthz` and worker logs.
 
 ### Local Jobs Monitoring
